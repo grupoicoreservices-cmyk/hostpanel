@@ -44,15 +44,29 @@ O `.gitignore` já garante que `backend/.env` e `frontend/.env` **não** vão pa
 
 ## 2. Instalar no servidor Ubuntu 24 (modo automático)
 
-Na CT já com IP público e DNS apontando:
+> **⚠️ Ubuntu 24 minimal (LXC/CT) não vem com `curl` instalado por padrão.** Instale-o primeiro:
 
 ```bash
 ssh root@mailweb-br01.voxyra.net.br
 
-# baixa e roda o instalador
+# 1) pré-requisitos mínimos para baixar o script
+apt update
+apt install -y curl ca-certificates
+
+# 2) baixa e roda o instalador
 curl -fsSL https://raw.githubusercontent.com/grupoicoreservices-cmyk/hostpanel/main/deploy/install.sh -o /tmp/install.sh
-sudo bash /tmp/install.sh
+bash /tmp/install.sh
 ```
+
+**Alternativa 100% via git** (se você preferir clonar o repositório antes de rodar):
+
+```bash
+apt update && apt install -y git
+git clone https://github.com/grupoicoreservices-cmyk/hostpanel.git /tmp/hostpanel
+bash /tmp/hostpanel/deploy/install.sh
+```
+
+> Se o repositório for **privado**, use um Personal Access Token: `git clone https://TOKEN@github.com/grupoicoreservices-cmyk/hostpanel.git /tmp/hostpanel`
 
 O script executa 9 etapas:
 

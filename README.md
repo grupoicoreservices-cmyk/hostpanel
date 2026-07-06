@@ -163,10 +163,24 @@ Instruções completas em [`INSTALL.md`](./INSTALL.md). Resumo rápido:
 
 ```bash
 ssh root@mailweb-br01.voxyra.net.br
+
+# Pré-requisito: CTs Ubuntu 24 minimal não têm curl instalado
+apt update && apt install -y curl ca-certificates
+
+# Baixa e roda o instalador
 curl -fsSL https://raw.githubusercontent.com/grupoicoreservices-cmyk/hostpanel/main/deploy/install.sh -o /tmp/install.sh
-sudo bash /tmp/install.sh
-# … depois emita o SSL:
-sudo certbot --nginx -d mailweb-br01.voxyra.net.br --agree-tos -m admin@voxyra.com --redirect
+bash /tmp/install.sh
+
+# Depois emita o SSL:
+certbot --nginx -d mailweb-br01.voxyra.net.br --agree-tos -m admin@voxyra.com --redirect
+```
+
+**Alternativa via git** (se preferir clonar o repo antes):
+
+```bash
+apt update && apt install -y git
+git clone https://github.com/grupoicoreservices-cmyk/hostpanel.git /tmp/hostpanel
+bash /tmp/hostpanel/deploy/install.sh
 ```
 
 Estrutura de deploy incluída no repo:

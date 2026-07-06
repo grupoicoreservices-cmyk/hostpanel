@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 #
 # Voxyra Mail (Hostpanel) — instalador Ubuntu 24.04 LTS
+#
+# ⚠️ Ubuntu 24 minimal (LXC/CT) NÃO vem com `curl` instalado.
+# Antes de rodar este script, execute:
+#     apt update && apt install -y curl ca-certificates
+#
 # Uso (como root):
-#   curl -fsSL https://raw.githubusercontent.com/grupoicoreservices-cmyk/hostpanel/main/deploy/install.sh | bash
-# ou clonando o repo:
-#   sudo bash deploy/install.sh
+#   curl -fsSL https://raw.githubusercontent.com/grupoicoreservices-cmyk/hostpanel/main/deploy/install.sh -o /tmp/install.sh
+#   bash /tmp/install.sh
+#
+# Alternativa via git:
+#   apt update && apt install -y git
+#   git clone https://github.com/grupoicoreservices-cmyk/hostpanel.git /tmp/hostpanel
+#   bash /tmp/hostpanel/deploy/install.sh
 #
 # Alvo: CT/VM Ubuntu 24 · Domínio: mailweb-br01.voxyra.net.br
 # ------------------------------------------------------------------------
@@ -24,6 +33,13 @@ warn(){ printf "\033[1;33m⚠ %s\033[0m\n" "$*"; }
 if [[ $EUID -ne 0 ]]; then
   echo "Execute como root (sudo)." >&2
   exit 1
+fi
+
+log "0/9 · Verificando ferramentas de bootstrap"
+if ! command -v curl >/dev/null 2>&1; then
+  log "curl não encontrado — instalando…"
+  apt-get update -y
+  apt-get install -y curl ca-certificates
 fi
 
 log "1/9 · Atualizando pacotes"

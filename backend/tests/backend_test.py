@@ -83,6 +83,15 @@ class TestWebmail:
         r = requests.get(f"{BASE_URL}/api/webmail/messages")
         assert r.status_code == 401
 
+    def test_monitoring_services_admin(self):
+        # Regression: /api/monitoring/services returns 200 with expected structure for admin
+        s = _admin_login()
+        r = s.get(f"{BASE_URL}/api/monitoring/services")
+        assert r.status_code == 200, f"got {r.status_code}: {r.text}"
+        data = r.json()
+        for key in ("services", "summary", "activity", "checked_at"):
+            assert key in data, f"missing key {key} in monitoring payload: {list(data.keys())}"
+
     def test_webmail_no_account_returns_400(self):
         s = _admin_login()
         r = s.get(f"{BASE_URL}/api/webmail/messages")
