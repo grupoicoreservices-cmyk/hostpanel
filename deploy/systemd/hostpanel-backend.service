@@ -1,0 +1,33 @@
+# /etc/systemd/system/hostpanel-backend.service
+# Voxyra Mail — FastAPI backend (uvicorn) gerenciado pelo systemd
+#
+# Instale com:
+#   sudo cp deploy/systemd/hostpanel-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now hostpanel-backend
+
+[Unit]
+Description=Voxyra Mail Backend (Hostpanel)
+After=network.target mongod.service
+Wants=mongod.service
+
+[Service]
+Type=simple
+User=hostpanel
+Group=hostpanel
+WorkingDirectory=/opt/hostpanel/backend
+EnvironmentFile=/opt/hostpanel/backend/.env
+ExecStart=/opt/hostpanel/venv/bin/uvicorn server:app --host 127.0.0.1 --port 8001 --workers 2 --proxy-headers --forwarded-allow-ips="127.0.0.1"
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/hostpanel/backend.log
+StandardError=append:/var/log/hostpanel/backend.err.log
+
+# Hardening básico
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

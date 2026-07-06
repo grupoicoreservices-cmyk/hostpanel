@@ -141,27 +141,49 @@ curl -b cookies.txt $API/api/dashboard/stats
 
 ## 📤 Publicar no GitHub
 
-1. Inicialize o repositório:
+Repositório de destino: **`grupoicoreservices-cmyk/hostpanel`**
 
 ```bash
 cd /app
 git init
 git add .
 git commit -m "chore: initial commit — Voxyra Mail SaaS"
-```
-
-2. Crie um repositório em `github.com/<seu-usuario>/voxyra-mail` (privado ou público).
-3. Envie:
-
-```bash
-git remote add origin git@github.com:<seu-usuario>/voxyra-mail.git
 git branch -M main
+git remote add origin https://github.com/grupoicoreservices-cmyk/hostpanel.git
 git push -u origin main
 ```
 
-Ou use o botão **Save to GitHub** da plataforma Emergent — ele executa o push do workspace atual (`/app`) mantendo o `.gitignore` deste repositório.
+Ou use o botão **Save to GitHub** da plataforma Emergent apontando para o mesmo repositório. O `.gitignore` já protege `backend/.env` e `frontend/.env` — apenas os `*.env.example` são commitados.
 
-> Nunca comite os arquivos `.env` reais — apenas os `*.env.example`. O `.gitignore` já garante isso.
+---
+
+## 🚢 Instalar em produção (Ubuntu 24 · mailweb-br01.voxyra.net.br)
+
+Instruções completas em [`INSTALL.md`](./INSTALL.md). Resumo rápido:
+
+```bash
+ssh root@mailweb-br01.voxyra.net.br
+curl -fsSL https://raw.githubusercontent.com/grupoicoreservices-cmyk/hostpanel/main/deploy/install.sh -o /tmp/install.sh
+sudo bash /tmp/install.sh
+# … depois emita o SSL:
+sudo certbot --nginx -d mailweb-br01.voxyra.net.br --agree-tos -m admin@voxyra.com --redirect
+```
+
+Estrutura de deploy incluída no repo:
+
+```
+deploy/
+  install.sh                                   # instalador one-shot Ubuntu 24
+  update.sh                                    # git pull + rebuild + restart
+  systemd/hostpanel-backend.service            # unit systemd (uvicorn @ 8001)
+  nginx/mailweb-br01.voxyra.net.br.conf        # vhost HTTPS + SPA + /api proxy
+```
+
+Atualizações futuras (após um `git push` no repo):
+
+```bash
+sudo bash /opt/hostpanel/deploy/update.sh
+```
 
 ---
 
