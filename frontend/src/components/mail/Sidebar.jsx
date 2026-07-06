@@ -17,6 +17,7 @@ const FOLDERS = [
 export default function Sidebar({ activeFolder, onFolderChange, onCompose, empresas = [] }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const isAdmin = user?.role === "superadmin" || user?.role === "empresa_admin";
 
   return (
     <aside className="w-64 flex-shrink-0 flex flex-col bg-secondary border-r border-border">
@@ -72,17 +73,17 @@ export default function Sidebar({ activeFolder, onFolderChange, onCompose, empre
           })}
         </ul>
 
-        {/* Empresas */}
-        <div className="mt-6 px-4">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Empresas</div>
-          <div className="space-y-1">
-            {(empresas.length ? empresas : [{ id: "self", nome: user?.name || "Minha empresa" }]).map((e) => (
-              <div key={e.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border text-xs">
-                <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
-                <span className="truncate">{e.nome}</span>
-              </div>
-            ))}
-            {(user?.role === "superadmin" || user?.role === "empresa_admin") && (
+        {/* Empresas — apenas para admin */}
+        {isAdmin && (
+          <div className="mt-6 px-4">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Empresas</div>
+            <div className="space-y-1">
+              {(empresas.length ? empresas : [{ id: "self", nome: user?.name || "Minha empresa" }]).map((e) => (
+                <div key={e.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border text-xs">
+                  <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span className="truncate">{e.nome}</span>
+                </div>
+              ))}
               <button
                 onClick={() => navigate("/admin/empresas")}
                 data-testid="sidebar-add-empresa"
@@ -90,23 +91,25 @@ export default function Sidebar({ activeFolder, onFolderChange, onCompose, empre
               >
                 <Plus className="w-3.5 h-3.5" /> Adicionar empresa
               </button>
-            )}
+            </div>
           </div>
-        </div>
+        )}
       </nav>
 
-      {/* Storage */}
-      <div className="px-4 py-4 border-t border-border">
-        <div className="flex items-center gap-2 text-xs font-semibold mb-2">
-          <HardDrive className="w-3.5 h-3.5 text-muted-foreground" />
-          <span>Armazenamento</span>
-          <span className="ml-auto text-muted-foreground">68%</span>
+      {/* Storage — apenas para admin */}
+      {isAdmin && (
+        <div className="px-4 py-4 border-t border-border">
+          <div className="flex items-center gap-2 text-xs font-semibold mb-2">
+            <HardDrive className="w-3.5 h-3.5 text-muted-foreground" />
+            <span>Armazenamento</span>
+            <span className="ml-auto text-muted-foreground">68%</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-blue-200/50 dark:bg-slate-700 overflow-hidden">
+            <div className="h-full rounded-full bg-primary" style={{ width: "68%" }} />
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-1.5">34.2 GB de 50 GB usados</div>
         </div>
-        <div className="h-1.5 rounded-full bg-blue-200/50 dark:bg-slate-700 overflow-hidden">
-          <div className="h-full rounded-full bg-primary" style={{ width: "68%" }} />
-        </div>
-        <div className="text-[11px] text-muted-foreground mt-1.5">34.2 GB de 50 GB usados</div>
-      </div>
+      )}
 
       {/* User footer */}
       <div className="p-3 border-t border-border flex items-center gap-2">

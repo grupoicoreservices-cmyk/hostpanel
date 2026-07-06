@@ -182,7 +182,7 @@ export default function Webmail() {
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
                 data-testid={MAIL.searchInput}
-                placeholder="Pesquisar e-mails, domínios, anexos ou remetentes"
+                placeholder={isAdmin ? "Pesquisar e-mails, domínios, anexos ou remetentes" : "Pesquisar e-mails, remetentes ou anexos"}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && loadMessages()}
@@ -231,8 +231,8 @@ export default function Webmail() {
           </div>
         </div>
 
-        {/* Stats bar */}
-        <StatsBar stats={stats} />
+        {/* Stats bar (apenas admin) */}
+        {isAdmin && <StatsBar stats={stats} />}
 
         {/* Content area */}
         <div className={`flex-1 flex overflow-hidden ${vertical ? "flex-col" : ""}`}>
@@ -264,7 +264,7 @@ export default function Webmail() {
             />
           </div>
 
-          {!vertical && <SaasPanel stats={stats} />}
+          {!vertical && isAdmin && <SaasPanel stats={stats} />}
         </div>
       </div>
 
