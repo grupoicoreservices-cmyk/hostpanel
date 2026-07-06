@@ -14,6 +14,7 @@ from database import get_db, close_db
 from auth import router as auth_router, seed_superadmin
 from routers.saas import router as saas_router
 from routers.webmail import router as webmail_router
+from routers.monitoring import router as monitoring_router
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -61,6 +62,7 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(saas_router)
 app.include_router(webmail_router)
+app.include_router(monitoring_router)
 
 
 # ---------- Startup ----------

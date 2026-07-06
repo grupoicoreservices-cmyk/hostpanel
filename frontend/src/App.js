@@ -15,6 +15,7 @@ import AdminDomains from "@/pages/admin/Domains";
 import AdminAccounts from "@/pages/admin/Accounts";
 import AdminLogs from "@/pages/admin/Logs";
 import AdminUsers from "@/pages/admin/Users";
+import AdminMonitoring from "@/pages/admin/Monitoring";
 
 function Protected({ children, roles }) {
   const { user, ready } = useAuth();
@@ -66,6 +67,7 @@ export default function App() {
               <Route path="dominios" element={<AdminDomains />} />
               <Route path="contas" element={<AdminAccounts />} />
               <Route path="usuarios" element={<AdminUsers />} />
+              <Route path="monitoramento" element={<AdminMonitoring />} />
               <Route path="logs" element={<AdminLogs />} />
             </Route>
 
