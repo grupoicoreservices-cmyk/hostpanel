@@ -1,0 +1,93 @@
+{
+  "project_name": "Voxyra Mail",
+  "theme_archetype": "Archetype 4 (Swiss & High-Contrast) adapted for Dashboard Soft Utility",
+  "mode": "light (default), dark supported",
+  "typography": {
+    "primary_font": "Manrope",
+    "secondary_font": "Outfit",
+    "headings": {
+      "font_family": "Outfit",
+      "h1": "text-4xl tracking-tight font-bold",
+      "h2": "text-2xl tracking-tight font-bold",
+      "h3": "text-xl font-semibold",
+      "h4": "text-lg font-semibold"
+    },
+    "body": {
+      "font_family": "Manrope",
+      "base": "text-sm",
+      "large": "text-base",
+      "small": "text-xs"
+    }
+  },
+  "colors": {
+    "light": {
+      "primary": "#2563EB",
+      "primary_hover": "#1D4ED8",
+      "sidebar_bg": "#EFF6FF",
+      "sidebar_text": "#1E293B",
+      "sidebar_hover": "#DBEAFE",
+      "background": "#F8FAFC",
+      "surface": "#FFFFFF",
+      "border": "#E2E8F0",
+      "text_primary": "#0F172A",
+      "text_secondary": "#64748B",
+      "success": "#10B981",
+      "warning": "#F59E0B",
+      "danger": "#EF4444"
+    },
+    "dark": {
+      "primary": "#3B82F6",
+      "primary_hover": "#60A5FA",
+      "sidebar_bg": "#0F172A",
+      "sidebar_text": "#F8FAFC",
+      "sidebar_hover": "#1E293B",
+      "background": "#020617",
+      "surface": "#0F172A",
+      "border": "#1E293B",
+      "text_primary": "#F8FAFC",
+      "text_secondary": "#94A3B8",
+      "success": "#059669",
+      "warning": "#D97706",
+      "danger": "#DC2626"
+    }
+  },
+  "layout_system": {
+    "global": "h-screen w-full flex overflow-hidden bg-background font-body text-text_primary",
+    "sidebar": "w-64 flex-shrink-0 flex flex-col bg-sidebar_bg border-r border-border transition-all",
+    "main_area": "flex-1 flex flex-col min-w-0 overflow-hidden",
+    "stats_bar": "h-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-4 border-b border-border bg-surface",
+    "content_split": "flex-1 flex overflow-hidden",
+    "message_list": "w-full md:w-1/2 lg:w-1/3 flex-shrink-0 border-r border-border flex flex-col bg-surface overflow-y-auto",
+    "reading_pane": "flex-1 flex flex-col bg-background overflow-y-auto",
+    "saas_panel": "w-72 flex-shrink-0 border-l border-border bg-surface flex flex-col overflow-y-auto"
+  },
+  "components": {
+    "stats_card": "p-4 rounded-xl border border-border bg-surface shadow-sm flex flex-col hover:shadow-md transition-shadow",
+    "message_row": "p-4 border-b border-border cursor-pointer hover:bg-blue-50/50 dark:hover:bg-slate-800/50 transition-colors flex flex-col gap-1 relative",
+    "message_row_unread": "font-bold bg-white dark:bg-slate-900 border-l-4 border-l-primary",
+    "message_row_read": "font-normal bg-slate-50/50 dark:bg-slate-900/50 text-text_secondary",
+    "compose_modal": "fixed bottom-6 right-6 w-[500px] h-[600px] max-w-[calc(100vw-48px)] bg-surface rounded-xl shadow-2xl border border-border flex flex-col z-50 overflow-hidden transform transition-transform",
+    "tabs": "flex border-b border-border bg-surface overflow-x-auto",
+    "tab_item": "px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap cursor-pointer",
+    "tab_item_active": "border-primary text-primary",
+    "tab_item_inactive": "border-transparent text-text_secondary hover:text-text_primary hover:border-border",
+    "button_primary": "bg-primary text-white hover:bg-primary_hover px-4 py-2 rounded-lg font-medium shadow-sm transition-all",
+    "button_secondary": "bg-surface border border-border text-text_primary hover:bg-slate-50 dark:hover:bg-slate-800 px-4 py-2 rounded-lg font-medium transition-all"
+  },
+  "micro_interactions": {
+    "hover_states": "All clickable items must have visual feedback (bg-color change, slight text darkening/lightening).",
+    "active_states": "Scale down slightly (scale-95) on click for buttons.",
+    "transitions": "Use `transition-all duration-200 ease-in-out` for most UI state changes.",
+    "modal_animation": "Slide up from bottom-right and fade in (translate-y-full to translate-y-0 opacity-0 to opacity-100).",
+    "message_selection": "Selected message in the list gets a distinct active background (e.g. bg-blue-100 dark:bg-blue-900/30) and primary text color for the subject."
+  },
+  "testing": {
+    "guideline": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case (e.g., data-testid='compose-btn')."
+  },
+  "assets_and_icons": {
+    "icon_library": "lucide-react",
+    "empty_states": "Use Lucide icons (e.g., Inbox, ShieldAlert, MailX) with oversized styling (w-16 h-16 text-slate-300 dark:text-slate-700) instead of stock photos for empty states to maintain a professional SaaS look. Include descriptive text below.",
+    "logo": "Use a stylized text logo with 'Outfit' font and a primary colored mail/cloud icon from Lucide for the Voxyra Mail brand."
+  },
+  "instructions_to_main_agent": "1. Build the layout using the defined 3-column + SaaS panel system. 2. Ensure horizontal/vertical toggle swaps the reading pane from right of message list (horizontal) to below message list or overlay. 3. Strictly use Manrope and Outfit fonts. 4. Implement light/dark mode explicitly applying the color map above via Tailwind arbitrary values or custom CSS vars. 5. Include data-testid on every clickable element and list item. 6. Integrate DirectAdmin mockup settings visually in the right SaaS Panel."
+}
