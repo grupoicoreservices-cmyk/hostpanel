@@ -1,89 +1,93 @@
-from fastapi import FastAPI, APIRouter
+"""Voxyra Mail SaaS backend entry point."""
 from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
-from datetime import datetime, timezone
-
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+import os
+import logging
+from fastapi import FastAPI, APIRouter
+from starlette.middleware.cors import CORSMiddleware
 
-# Create the main app without a prefix
-app = FastAPI()
+from database import get_db, close_db
+from auth import router as auth_router, seed_superadmin
+from routers.saas import router as saas_router
+from routers.webmail import router as webmail_router
 
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("voxyra")
 
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+app = FastAPI(title="Voxyra Mail SaaS", version="1.0.0")
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
 
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
+# ---------- CORS ----------
+origins_env = os.environ.get("CORS_ORIGINS", "*")
+if origins_env.strip() == "*":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=".*",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in origins_env.split(",") if o.strip()],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+# ---------- Health ----------
+health_router = APIRouter(prefix="/api")
+
+
+@health_router.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"service": "voxyra-mail", "status": "ok"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+@health_router.get("/health")
+async def health():
+    return {"status": "ok"}
 
-# Include the router in the main app
-app.include_router(api_router)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.include_router(health_router)
+app.include_router(auth_router)
+app.include_router(saas_router)
+app.include_router(webmail_router)
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+
+# ---------- Startup ----------
+@app.on_event("startup")
+async def on_startup():
+    db = get_db()
+    try:
+        await db.users.create_index("email", unique=True)
+        await db.users.create_index("empresa_id")
+        await db.empresas.create_index("id", unique=True)
+        await db.domains.create_index([("empresa_id", 1), ("nome", 1)])
+        await db.email_accounts.create_index([("dominio_id", 1), ("email", 1)])
+        await db.email_accounts.create_index("empresa_id")
+        await db.directadmin_servers.create_index("id", unique=True)
+        await db.login_attempts.create_index("identifier")
+        await db.admin_logs.create_index([("timestamp", -1)])
+        await db.login_logs.create_index([("timestamp", -1)])
+    except Exception as e:
+        logger.warning(f"Index setup: {e}")
+
+    try:
+        await seed_superadmin()
+        logger.info("Superadmin seeded")
+    except Exception as e:
+        logger.error(f"Seed error: {e}")
+
 
 @app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+async def on_shutdown():
+    await close_db()

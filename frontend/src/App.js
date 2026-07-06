@@ -1,56 +1,78 @@
-import { useEffect } from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "sonner";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { PrefsProvider } from "@/context/PrefsContext";
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
+import Login from "@/pages/Login";
+import Webmail from "@/pages/Webmail";
+import AdminLayout from "@/components/admin/AdminLayout";
+import AdminDashboard from "@/pages/admin/Dashboard";
+import AdminEmpresas from "@/pages/admin/Empresas";
+import AdminServers from "@/pages/admin/Servers";
+import AdminDomains from "@/pages/admin/Domains";
+import AdminAccounts from "@/pages/admin/Accounts";
+import AdminLogs from "@/pages/admin/Logs";
+import AdminUsers from "@/pages/admin/Users";
 
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
-
-function App() {
-  return (
-    <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </div>
-  );
+function Protected({ children, roles }) {
+  const { user, ready } = useAuth();
+  if (!ready) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-background">
+        <div className="text-muted-foreground text-sm">Carregando…</div>
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  if (roles && !roles.includes(user.role)) return <Navigate to="/mail" replace />;
+  return children;
 }
 
-export default App;
+function DefaultRedirect() {
+  const { user, ready } = useAuth();
+  if (!ready) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role === "superadmin" || user.role === "empresa_admin")
+    return <Navigate to="/admin/dashboard" replace />;
+  return <Navigate to="/mail" replace />;
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <PrefsProvider>
+        <BrowserRouter>
+          <Toaster position="top-right" richColors />
+          <Routes>
+            <Route path="/" element={<DefaultRedirect />} />
+            <Route path="/login" element={<Login />} />
+
+            <Route path="/mail" element={<Protected><Webmail /></Protected>} />
+
+            <Route
+              path="/admin"
+              element={
+                <Protected roles={["superadmin", "empresa_admin"]}>
+                  <AdminLayout />
+                </Protected>
+              }
+            >
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<AdminDashboard />} />
+              <Route path="empresas" element={<AdminEmpresas />} />
+              <Route path="servidores" element={<AdminServers />} />
+              <Route path="dominios" element={<AdminDomains />} />
+              <Route path="contas" element={<AdminAccounts />} />
+              <Route path="usuarios" element={<AdminUsers />} />
+              <Route path="logs" element={<AdminLogs />} />
+            </Route>
+
+            <Route path="*" element={<DefaultRedirect />} />
+          </Routes>
+        </BrowserRouter>
+      </PrefsProvider>
+    </AuthProvider>
+  );
+}
