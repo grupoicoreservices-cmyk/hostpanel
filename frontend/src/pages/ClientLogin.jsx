@@ -124,16 +124,20 @@ export default function ClientLogin() {
       style={{ fontFamily: '"Google Sans", "Roboto", -apple-system, "Segoe UI", sans-serif' }}
     >
       {/* Corpo com card central */}
-      <div className="flex-1 flex items-center justify-center px-4 py-8">
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-8">
+        {/* Logo grande ACIMA do card */}
+        <div className="mb-6 flex flex-col items-center gap-3" data-testid="client-login-brandmark-top">
+          <BrandMark logoUrl={logoUrl} size="lg" />
+        </div>
+
         <div
           className="w-full max-w-[900px] rounded-3xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm p-8 sm:p-12"
           data-testid="client-login-card"
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12">
-            {/* Coluna esquerda: título + logo */}
+            {/* Coluna esquerda: título (o logo agora está acima do card) */}
             <div className="flex flex-col justify-start">
-              <BrandMark logoUrl={logoUrl} />
-              <h1 className="mt-4 text-[2rem] sm:text-[2.25rem] leading-[1.15] font-normal text-slate-900 dark:text-slate-100 tracking-tight">
+              <h1 className="text-[2rem] sm:text-[2.25rem] leading-[1.15] font-normal text-slate-900 dark:text-slate-100 tracking-tight">
                 Faça login
               </h1>
               <p className="mt-2 text-slate-700 dark:text-slate-300 text-[15px]">
@@ -277,16 +281,16 @@ export default function ClientLogin() {
   );
 }
 
-function BrandMark({ logoUrl }) {
+function BrandMark({ logoUrl, size = "md" }) {
   const src = logoUrl || "/logo.png";
+  const sizeCls = size === "lg" ? "h-24 sm:h-28 w-auto" : "h-12 w-auto";
   return (
     <img
       src={src}
       alt="logo"
-      className="h-12 w-auto object-contain"
+      className={`${sizeCls} object-contain drop-shadow-sm`}
       data-testid="client-login-logo"
       onError={(e) => {
-        // Se a customização do cliente falhar, cai no logo padrão do Voxyra
         if (e.currentTarget.src !== window.location.origin + "/logo.png") {
           e.currentTarget.src = "/logo.png";
         } else {
