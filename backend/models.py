@@ -203,3 +203,55 @@ class FolderInfo(BaseModel):
     display_name: str
     unread: int = 0
     total: int = 0
+
+
+
+# ---------- Backup / Retention SFTP ----------
+BackupAuthType = Literal["password", "key"]
+BackupProtocol = Literal["sftp", "ftp", "ftps"]
+
+
+class BackupServerBase(BaseModel):
+    nome: str = Field(..., min_length=1)
+    protocol: BackupProtocol = "sftp"
+    host: str = Field(..., min_length=1)
+    port: int = 22
+    username: str = Field(..., min_length=1)
+    auth_type: BackupAuthType = "password"
+    base_path: str = "/backup"          # diretório raiz onde salva os .eml
+    empresa_id: Optional[str] = None    # opcional: restringir a uma empresa
+    retention_days: int = 90
+    enabled: bool = True
+    poll_interval_min: int = 15         # intervalo entre polls IMAP → SFTP
+
+
+class BackupServerCreate(BackupServerBase):
+    password: Optional[str] = None       # se auth_type = password
+    private_key: Optional[str] = None    # se auth_type = key (PEM)
+    passphrase: Optional[str] = None     # passphrase da chave (opcional)
+
+
+class BackupServerUpdate(BaseModel):
+    nome: Optional[str] = None
+    protocol: Optional[BackupProtocol] = None
+    host: Optional[str] = None
+    port: Optional[int] = None
+    username: Optional[str] = None
+    auth_type: Optional[BackupAuthType] = None
+    base_path: Optional[str] = None
+    empresa_id: Optional[str] = None
+    retention_days: Optional[int] = None
+    enabled: Optional[bool] = None
+    poll_interval_min: Optional[int] = None
+    password: Optional[str] = None
+    private_key: Optional[str] = None
+    passphrase: Optional[str] = None
+
+
+class BackupServerOut(BackupServerBase):
+    id: str
+    created_at: str
+    last_run_at: Optional[str] = None
+    last_status: Optional[str] = None   # ok | error: … | never
+    last_error: Optional[str] = None
+    total_messages_backed_up: int = 0

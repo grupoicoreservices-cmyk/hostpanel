@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Mail, LayoutDashboard, Building2, Server, Globe, Users2, UserCircle2, ScrollText, Activity, ShieldAlert, ShieldX, LogOut, ArrowRight, Sun, Moon } from "lucide-react";
+import { Mail, LayoutDashboard, Building2, Server, Globe, Users2, UserCircle2, ScrollText, Activity, ShieldAlert, ShieldX, HardDrive, LogOut, ArrowRight, Sun, Moon } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { usePrefs } from "@/context/PrefsContext";
 import { ADMIN, AUTH, MAIL } from "@/lib/testIds";
@@ -15,6 +15,7 @@ const NAV = [
   { to: "/admin/monitoramento", label: "Monitoramento", icon: Activity,      id: "monitoramento", color: "text-lime-500" },
   { to: "/admin/antispam",    label: "Antispam Center", icon: ShieldAlert,   id: "antispam",      color: "text-red-500" },
   { to: "/admin/quarentena",  label: "Quarentena Spam", icon: ShieldX,       id: "quarentena",    color: "text-pink-500" },
+  { to: "/admin/backup",      label: "Retenção & Backup", icon: HardDrive,   id: "backup",        color: "text-cyan-500" },
   { to: "/admin/logs",        label: "Logs",          icon: ScrollText,      id: "logs",          color: "text-orange-500" },
 ];
 

@@ -96,23 +96,17 @@ export default function AdminAccounts() {
                 </td>
                 <td className="px-4 py-3 text-right flex justify-end gap-1">
                   <button
-                    data-testid={`account-quota-${r.id}`}
-                    onClick={() => {
-                      const q = window.prompt("Nova quota em MB", r.quota_mb);
-                      if (q) patch(r.id, { quota_mb: Number(q) });
-                    }}
-                    className="p-1.5 rounded-md hover:bg-muted text-muted-foreground"
-                    title="Ajustar quota"
-                  ><HardDrive className="w-4 h-4"/></button>
-                  <button
                     data-testid={`account-password-${r.id}`}
-                    onClick={() => {
-                      const p = window.prompt("Nova senha (mínimo 8 caracteres)");
-                      if (p) patch(r.id, { password: p });
-                    }}
+                    onClick={() => setPwdModal({ id: r.id, email: r.email, password: "", confirm: "" })}
                     className="p-1.5 rounded-md hover:bg-muted text-muted-foreground"
                     title="Resetar senha"
                   ><KeyRound className="w-4 h-4"/></button>
+                  <button
+                    data-testid={`account-quota-btn-${r.id}`}
+                    onClick={() => setQuotaModal({ id: r.id, email: r.email, quota_mb: r.quota_mb })}
+                    className="p-1.5 rounded-md hover:bg-muted text-muted-foreground"
+                    title="Ajustar quota"
+                  ><HardDrive className="w-4 h-4"/></button>
                   <button
                     data-testid={`account-status-${r.id}`}
                     onClick={() => patch(r.id, { status: r.status === "ativo" ? "suspenso" : "ativo" })}
@@ -190,6 +184,118 @@ export default function AdminAccounts() {
             <div className="p-5 border-t border-border flex gap-2 justify-end">
               <button data-testid={ADMIN.cancelBtn} onClick={() => setShowForm(false)} className="px-4 py-2 rounded-xl border border-border text-sm font-semibold hover:bg-muted">Cancelar</button>
               <button data-testid={ADMIN.saveBtn} disabled={saving || !form.email || !form.password || !form.dominio_id} onClick={save} className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-blue-700 disabled:opacity-60">{saving ? "Salvando…" : "Salvar"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Resetar senha */}
+      {pwdModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-sm">
+            <div className="p-5 border-b border-border flex items-center gap-2">
+              <KeyRound className="w-4 h-4"/>
+              <h2 className="font-display text-lg font-bold">Resetar senha da caixa</h2>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Nova senha para <strong>{pwdModal.email}</strong>. Será aplicada no DirectAdmin e no cache local do webmail.
+              </p>
+              <input
+                data-testid="account-new-password-input"
+                type="password"
+                autoFocus
+                placeholder="Nova senha (mín. 6 caracteres)"
+                value={pwdModal.password}
+                onChange={e => setPwdModal({ ...pwdModal, password: e.target.value })}
+                className="w-full px-3 py-2.5 rounded-xl border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
+              <input
+                data-testid="account-confirm-password-input"
+                type="password"
+                placeholder="Confirmar nova senha"
+                value={pwdModal.confirm}
+                onChange={e => setPwdModal({ ...pwdModal, confirm: e.target.value })}
+                className="w-full px-3 py-2.5 rounded-xl border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
+              {pwdModal.password && pwdModal.confirm && pwdModal.password !== pwdModal.confirm && (
+                <div className="text-xs text-destructive">As senhas não conferem.</div>
+              )}
+              {pwdModal.password && pwdModal.password.length < 6 && (
+                <div className="text-xs text-destructive">Mínimo 6 caracteres.</div>
+              )}
+            </div>
+            <div className="p-5 border-t border-border flex gap-2 justify-end">
+              <button
+                data-testid="account-pwd-cancel"
+                onClick={() => setPwdModal(null)}
+                className="px-4 py-2 rounded-xl border border-border text-sm font-semibold hover:bg-muted"
+              >Cancelar</button>
+              <button
+                data-testid="account-pwd-submit"
+                disabled={
+                  saving
+                  || pwdModal.password.length < 6
+                  || pwdModal.password !== pwdModal.confirm
+                }
+                onClick={async () => {
+                  setSaving(true);
+                  try {
+                    await api.patch(`/contas/${pwdModal.id}`, { password: pwdModal.password });
+                    toast.success("Senha redefinida no DirectAdmin");
+                    setPwdModal(null);
+                    load();
+                  } catch (e) {
+                    toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+                  } finally { setSaving(false); }
+                }}
+                className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-blue-700 disabled:opacity-60"
+              >{saving ? "Salvando…" : "Redefinir"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Ajustar quota */}
+      {quotaModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-sm">
+            <div className="p-5 border-b border-border flex items-center gap-2">
+              <HardDrive className="w-4 h-4"/>
+              <h2 className="font-display text-lg font-bold">Ajustar quota</h2>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Nova quota em MB para <strong>{quotaModal.email}</strong>.
+              </p>
+              <input
+                data-testid="account-new-quota-input"
+                type="number"
+                min="10"
+                autoFocus
+                value={quotaModal.quota_mb}
+                onChange={e => setQuotaModal({ ...quotaModal, quota_mb: Number(e.target.value) })}
+                className="w-full px-3 py-2.5 rounded-xl border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
+            </div>
+            <div className="p-5 border-t border-border flex gap-2 justify-end">
+              <button onClick={() => setQuotaModal(null)} className="px-4 py-2 rounded-xl border border-border text-sm font-semibold hover:bg-muted">Cancelar</button>
+              <button
+                data-testid="account-quota-submit"
+                disabled={saving || quotaModal.quota_mb < 10}
+                onClick={async () => {
+                  setSaving(true);
+                  try {
+                    await api.patch(`/contas/${quotaModal.id}`, { quota_mb: quotaModal.quota_mb });
+                    toast.success("Quota atualizada");
+                    setQuotaModal(null);
+                    load();
+                  } catch (e) {
+                    toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+                  } finally { setSaving(false); }
+                }}
+                className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-blue-700 disabled:opacity-60"
+              >{saving ? "Salvando…" : "Salvar"}</button>
             </div>
           </div>
         </div>
