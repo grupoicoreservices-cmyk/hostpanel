@@ -1,5 +1,21 @@
 import { Archive, ShieldAlert, Reply, MoreHorizontal, Trash2, Forward, MailOpen } from "lucide-react";
+import DOMPurify from "dompurify";
 import { MAIL } from "@/lib/testIds";
+
+// Configuração restritiva para HTML de e-mail: sem scripts, sem event handlers,
+// links abrem em nova aba com noopener.
+const SANITIZE_CONFIG = {
+  FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "input", "button", "meta", "link"],
+  FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus", "onblur", "srcset", "formaction"],
+  ALLOW_DATA_ATTR: false,
+};
+
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  if (node.tagName === "A") {
+    node.setAttribute("target", "_blank");
+    node.setAttribute("rel", "noopener noreferrer nofollow");
+  }
+});
 
 export default function ReadingPane({ message, onArchive, onSpam, onDelete, onReply, onClose, onReplyQuick }) {
   if (!message) {
@@ -15,7 +31,7 @@ export default function ReadingPane({ message, onArchive, onSpam, onDelete, onRe
   }
 
   const body = message.body_html
-    ? <div className="prose prose-sm dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: message.body_html }} />
+    ? <div className="prose prose-sm dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(message.body_html, SANITIZE_CONFIG) }} />
     : <div className="whitespace-pre-wrap text-sm leading-relaxed">{message.body_text || message.preview || ""}</div>;
 
   return (
@@ -94,7 +110,7 @@ export default function ReadingPane({ message, onArchive, onSpam, onDelete, onRe
             </div>
             <div className="flex flex-wrap gap-2">
               {message.attachments.map((a, i) => (
-                <div key={i} className="px-3 py-2 rounded-lg border border-border bg-card text-xs flex items-center gap-2">
+                <div key={`${a.filename || 'att'}-${a.size || 0}-${i}`} className="px-3 py-2 rounded-lg border border-border bg-card text-xs flex items-center gap-2">
                   📎 <span className="truncate max-w-[180px]">{a.filename}</span>
                   <span className="text-muted-foreground">{Math.ceil((a.size || 0) / 1024)} KB</span>
                 </div>
