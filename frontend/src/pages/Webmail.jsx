@@ -22,7 +22,8 @@ import { toast } from "sonner";
 /** Fetcher SWR: escolhe o endpoint certo por pasta. Pastas virtuais que
  *  não existem no IMAP (Starred, Snoozed) devolvem estrutura vazia. */
 const VIRTUAL_FOLDERS = new Set(["Starred", "Snoozed"]);
-const EMPTY_PAGE = { items: [], total: 0, page: 1, page_size: 50, unread: 0 };
+const EMPTY_PAGE = { items: [], total: 0, page: 1, page_size: 50, unread: 0, folder_counts: {} };
+const COUNT_FOLDERS = "INBOX,Sent,Drafts,Trash,Junk,Archive";
 
 const messagesFetcher = async ([folder, search, page, pageSize]) => {
   if (VIRTUAL_FOLDERS.has(folder)) return { ...EMPTY_PAGE, page_size: pageSize };
@@ -31,17 +32,20 @@ const messagesFetcher = async ([folder, search, page, pageSize]) => {
       params: { limit: pageSize, search: search || undefined },
     });
     const items = data.messages || [];
-    return { items, total: items.length, page: 1, page_size: pageSize, unread: 0 };
+    return { items, total: items.length, page: 1, page_size: pageSize, unread: 0, folder_counts: {} };
   }
+  // IMPORTANTE: `count_folders` faz o backend usar UMA única conexão IMAP para
+  // listar mensagens + calcular contadores de todas as pastas. Isso evita
+  // esbarrar em `mail_max_userip_connections` do Dovecot (default 15).
   const { data } = await api.get("/webmail/messages", {
     params: {
       folder,
       page,
       page_size: pageSize,
       search: search || undefined,
+      count_folders: COUNT_FOLDERS,
     },
   });
-  // Backend devolve {items,total,page,page_size,unread} quando enviamos page_size
   return data;
 };
 
@@ -82,34 +86,35 @@ export default function Webmail() {
     return () => clearTimeout(t);
   }, [search]);
 
-  // SWR cache: mantém dados por pasta+busca+página; revalida em focus e a cada 60s.
-  // NÃO usa keepPreviousData — ao trocar de pasta queremos ver "Carregando"
-  // imediatamente ao invés dos dados antigos da pasta anterior.
+  // SWR cache: mantém dados por pasta+busca+página; revalida em focus.
+  // O refresh automático agressivo foi REMOVIDO — o SSE (IMAP IDLE) notifica
+  // quando algo muda, então polling periódico só drena conexões IMAP à toa.
   const swrKey = user ? ["mail-messages", folder, searchDebounced, page, pageSize] : null;
   const { data: pageData, isLoading, isValidating, mutate, error } = useSWR(
     swrKey,
     ([, f, s, p, ps]) => messagesFetcher([f, s, p, ps]),
     {
       revalidateOnFocus: true,
-      revalidateIfStale: true,
-      dedupingInterval: 20_000,
-      refreshInterval: 60_000,
+      revalidateIfStale: false,
+      dedupingInterval: 15_000,
+      // Sem refreshInterval — deixa o SSE cuidar de push
+      errorRetryCount: 1,       // Evita rajadas contra o Dovecot
+      errorRetryInterval: 10_000,
+      shouldRetryOnError: (err) => {
+        // Erros de limite de conexão IMAP não devem retryar
+        const detail = String(err?.response?.data?.detail || "");
+        return !/LIMIT|Maximum number of connections/i.test(detail);
+      },
     }
   );
 
-  // Contadores de não lidas por pasta (chave separada, revalida com frequência menor)
-  const { data: folderCounts, mutate: mutateCounts } = useSWR(
-    user ? ["mail-folder-counts"] : null,
-    async () => {
-      try {
-        const { data } = await api.get("/webmail/folder-counts", {
-          params: { folders: "INBOX,Sent,Drafts,Trash,Junk,Archive" },
-        });
-        return data || {};
-      } catch { return {}; }
-    },
-    { revalidateOnFocus: true, refreshInterval: 90_000, dedupingInterval: 30_000 }
-  );
+  // folder_counts agora vem embutido em `pageData` (mesma conexão IMAP).
+  // Guarda o último valor conhecido para não zerar durante loading da próxima página.
+  const [folderCounts, setFolderCounts] = useState({});
+  useEffect(() => {
+    if (pageData?.folder_counts) setFolderCounts(pageData.folder_counts);
+  }, [pageData]);
+  const mutateCounts = mutate; // Revalidar `/messages` já refaz os counts
 
   // ---- Notificações desktop ----
   const [notifPerm, setNotifPerm] = useState(() =>

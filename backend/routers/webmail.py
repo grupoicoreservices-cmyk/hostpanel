@@ -73,15 +73,20 @@ async def folders(user: dict = Depends(get_current_user)):
 @router.get("/messages")
 async def messages(folder: str = "INBOX", limit: int = 50, search: Optional[str] = None,
                    page: int = 1, page_size: Optional[int] = None,
+                   count_folders: Optional[str] = None,
                    user: dict = Depends(get_current_user)):
     client = await _get_mail_client(user)
     try:
+        folders_list = None
+        if count_folders:
+            folders_list = [f.strip() for f in count_folders.split(",") if f.strip()]
         result = client.list_messages(
             folder=folder, limit=limit, search=search,
             page=page, page_size=page_size,
+            count_folders=folders_list,
         )
-        # Retrocompat: se cliente não pediu paginação, devolve lista simples
-        if page_size is None and page == 1:
+        # Retrocompat: se cliente não pediu paginação nem counts, devolve lista simples
+        if page_size is None and page == 1 and not count_folders:
             return result["items"]
         return result
     except MailError as e:

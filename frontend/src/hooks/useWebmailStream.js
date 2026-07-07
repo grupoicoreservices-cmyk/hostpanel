@@ -15,6 +15,7 @@ import { useEffect, useRef } from "react";
 export default function useWebmailStream({ baseUrl, enabled = true, folder = "INBOX", onEvent }) {
   const esRef = useRef(null);
   const reconnectTimerRef = useRef(null);
+  const retryCountRef = useRef(0);
   const cbRef = useRef(onEvent);
 
   // Sempre usa o callback mais recente sem reabrir o stream
@@ -27,7 +28,6 @@ export default function useWebmailStream({ baseUrl, enabled = true, folder = "IN
 
     const connect = () => {
       if (closed) return;
-      // Fecha eventual conexão anterior
       try { esRef.current?.close(); } catch { /* noop */ }
 
       const url = `${baseUrl}/webmail/events?folder=${encodeURIComponent(folder)}`;
@@ -43,18 +43,22 @@ export default function useWebmailStream({ baseUrl, enabled = true, folder = "IN
         }
       };
 
-      es.addEventListener("ready",     handle("ready"));
+      // Reseta o contador na primeira conexão bem-sucedida
+      es.addEventListener("ready", (ev) => { retryCountRef.current = 0; handle("ready")(ev); });
       es.addEventListener("new_mail",  handle("new_mail"));
       es.addEventListener("expunge",   handle("expunge"));
       es.addEventListener("recent",    handle("recent"));
       es.addEventListener("error", (ev) => {
-        // Erro no lado do backend com payload
         if (ev.data) handle("error")(ev);
-        // Erro de rede — deixa o EventSource nativo tentar reabrir;
-        // se readyState virou CLOSED, forçamos reconexão manual em 5s.
         if (es.readyState === EventSource.CLOSED && !closed) {
+          // Backoff exponencial: 5s, 10s, 30s, 60s, 120s (máx.)
+          // Isso protege o servidor IMAP contra tempestade de reconexões
+          // quando ele já está bloqueando (ex.: mail_max_userip_connections).
+          retryCountRef.current = Math.min(retryCountRef.current + 1, 5);
+          const delays = [5000, 10000, 30000, 60000, 120000];
+          const delay = delays[retryCountRef.current - 1] || 120000;
           if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-          reconnectTimerRef.current = setTimeout(connect, 5000);
+          reconnectTimerRef.current = setTimeout(connect, delay);
         }
       });
     };

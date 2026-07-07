@@ -135,12 +135,15 @@ class MailClient:
                 pass
 
     def list_messages(self, folder: str = "INBOX", limit: int = 50, search: str | None = None,
-                      page: int = 1, page_size: int | None = None) -> dict:
+                      page: int = 1, page_size: int | None = None,
+                      count_folders: list[str] | None = None) -> dict:
         """Lista mensagens de uma pasta com paginação.
 
-        Retorna dict com {items, total, page, page_size, unread}.
-        Se `page_size` for None, usa `limit` (compat retroativa) e retorna a lista simples
-        no campo `items`. `page` é 1-based; mensagens mais novas ficam na página 1.
+        Retorna dict com {items, total, page, page_size, unread}. Quando
+        `count_folders` é fornecido, roda IMAP STATUS para cada pasta na MESMA
+        sessão IMAP e devolve também `folder_counts: {folder: {total, unread}}`.
+        Isso reduz o número de conexões IMAP paralelas, evitando esbarrar em
+        `mail_max_userip_connections` do Dovecot.
         """
         eff_page_size = int(page_size) if page_size is not None else int(limit)
         if eff_page_size <= 0:
@@ -149,35 +152,51 @@ class MailClient:
 
         m = self._imap()
         try:
+            # ----- STATUS por pasta antes do SELECT (STATUS não pode rodar após SELECT na mesma pasta) -----
+            folder_counts: dict[str, dict] = {}
+            if count_folders:
+                import re as _re
+                for f in count_folders:
+                    safe = _safe_folder(f)
+                    try:
+                        typ_s, data_s = m.status(safe, "(MESSAGES UNSEEN)")
+                        if typ_s != "OK" or not data_s or not data_s[0]:
+                            folder_counts[f] = {"total": 0, "unread": 0}
+                            continue
+                        raw = data_s[0].decode(errors="ignore")
+                        mt = _re.search(r"MESSAGES\s+(\d+)", raw)
+                        mu = _re.search(r"UNSEEN\s+(\d+)", raw)
+                        folder_counts[f] = {
+                            "total": int(mt.group(1)) if mt else 0,
+                            "unread": int(mu.group(1)) if mu else 0,
+                        }
+                    except Exception:
+                        folder_counts[f] = {"total": 0, "unread": 0}
+
+            # ----- SELECT + SEARCH da pasta atual -----
             m.select(_safe_folder(folder), readonly=True)
             criteria = "ALL"
             if search:
-                # naive text search across subject / from / body
                 safe = search.replace('"', '')
                 criteria = f'(OR OR SUBJECT "{safe}" FROM "{safe}" BODY "{safe}")'
             typ, data = m.search(None, criteria)
             if typ != "OK" or not data or not data[0]:
-                return {"items": [], "total": 0, "page": eff_page, "page_size": eff_page_size, "unread": 0}
+                out = {"items": [], "total": 0, "page": eff_page, "page_size": eff_page_size, "unread": 0}
+                if count_folders:
+                    out["folder_counts"] = folder_counts
+                return out
             ids = data[0].split()
             total = len(ids)
 
-            # Contagem de não lidas (só significativa quando não há search)
             unread_count = 0
             if not search:
                 typ_u, data_u = m.search(None, "UNSEEN")
                 if typ_u == "OK" and data_u and data_u[0]:
                     unread_count = len(data_u[0].split())
-            else:
-                # Com search, calcula intersecção via flags depois
-                pass
 
-            # Fatia da página (mensagens mais novas = fim da lista IMAP)
             end = total - (eff_page - 1) * eff_page_size
             start = max(0, end - eff_page_size)
-            if end <= 0:
-                page_ids = []
-            else:
-                page_ids = ids[start:end][::-1]
+            page_ids = ids[start:end][::-1] if end > 0 else []
 
             result = []
             for uid in page_ids:
@@ -215,13 +234,16 @@ class MailClient:
                     "spam_score": spam_info["score"],
                     "spam_status": spam_info["status"],
                 })
-            return {
+            out = {
                 "items": result,
                 "total": total,
                 "page": eff_page,
                 "page_size": eff_page_size,
                 "unread": unread_count,
             }
+            if count_folders:
+                out["folder_counts"] = folder_counts
+            return out
         except Exception as e:
             raise MailError(f"IMAP list: {e}") from e
         finally:
