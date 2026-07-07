@@ -65,10 +65,17 @@ Construir um Webmail Host SaaS multiempresa/multidomínio integrado a servidores
    - **Fix de conexões IMAP concorrentes (Dovecot LIMIT)**: consolidação em **1 conexão só** — `/messages` aceita novo param `count_folders=INBOX,Sent,...` que roda STATUS por pasta ANTES do SELECT (no mesmo IMAP session). Frontend passa sempre — reduziu de 3+ conexões (list + counts + SSE) para 2 (list-com-counts + SSE). Removido `refreshInterval` do SWR (SSE cuida do push). `errorRetryCount: 1` + `shouldRetryOnError` que ignora LIMIT — sem retry storm. Banner de erro específico para `LIMIT`: mensagem em vermelho pedindo pra fechar outras abas/clientes e sugerindo aumentar `mail_max_userip_connections` no Dovecot.
    - Testes novos: `/app/backend/tests/test_webmail_p1_features.py` — 12 testes cobrindo auth, contratos multipart, download, vacation, signature roundtrip. `test_mail_pagination.py::test_list_messages_with_count_folders_single_connection` valida o combined-path. **19/19 pass**.
 
+- ✅ **Fix backup FTP automático + StatusBadge (07/07/2026)**:
+   - **Bug**: teste manual de conexão FTP passa OK ("Escrita em /backup confirmada") mas o backup automático falha silenciosamente. Causa raiz: `_SFTPHandle.upload()` fazia `STOR /backup/empresa/dom/user/2026-07/msg.eml` (absoluto) enquanto o teste manual fazia `STOR msg.eml` (relativo) após CWD. Muitos servidores FTP com chroot (ProFTPD, PureFTPD default DA) rejeitam `STOR` absoluto — usuário fica preso no home, `/` é o home dele, e nem sempre STOR resolve `/backup/...` corretamente dentro do jail.
+   - **Fix em `backup_service.py`**: `mkdirs()` para FTP não volta mais para `/` no fim (deixa o CWD no diretório-alvo). `upload()`, `download()`, `remove()` extraem o filename e fazem STOR/RETR/DELE com nome RELATIVO — mesmo padrão do teste manual `_test_connection_sync` em `backup.py`. SFTP continua com path absoluto (funciona corretamente com paramiko).
+   - **Melhoria de debug**: `_run_one_account` agora armazena o **1º erro observado** (`first_error`) — antes só contávamos "1 erros" sem detalhe. `last_error` no banco agora traz `"upload uid=42 de user@dom.com: OSError: 550 Permission denied"` ao invés de string genérica.
+   - **Frontend `StatusBadge`**: reconhece "ok (X uploads)" e "partial: N erros" além do "ok" exato — o novo status parcial mostra ícone âmbar com o detalhe do primeiro erro (ao invés de vermelho enganoso).
+   - Testes: `/app/backend/tests/test_backup_ftp_paths.py` — 5 testes cobrindo upload/download/remove/mkdirs com nome relativo + criação de hierarquia. **5/5 pass**.
+
 ## Backlog priorizado (P1)
-- Filtros e regras antispam (persistidas por usuário).
-- Threading de conversas (conversation view).
-- Export CSV das listas admin.
+- Pool de conexões IMAP por usuário (definitivo para os 240 accounts — cerca de 4-6h de trabalho, resolve `mail_max_userip_connections` sem precisar ajustar o Dovecot).
+- Threading de conversas (conversation view estilo Gmail).
+- Filtros e regras antispam persistidos por usuário.
 
 ## Backlog (P2)
 - 2FA (TOTP) para admins.

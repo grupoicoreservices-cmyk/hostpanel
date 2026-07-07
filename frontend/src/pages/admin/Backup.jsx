@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, X, Server, Trash2, TestTube2, Pencil, Power, HardDrive, CheckCircle2, XCircle, Clock, Info, Play, FileSearch, ArrowRight, RefreshCw } from "lucide-react";
+import { Plus, X, Server, Trash2, TestTube2, Pencil, Power, HardDrive, CheckCircle2, XCircle, Clock, Info, Play, FileSearch, ArrowRight, RefreshCw, AlertCircle } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 
@@ -501,9 +501,17 @@ function StatusBadge({ status, error, lastRun }) {
       <Clock className="w-3.5 h-3.5"/> Nunca testado
     </span>;
   }
-  if (status === "ok") {
-    return <span className="inline-flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400">
-      <CheckCircle2 className="w-3.5 h-3.5"/> OK {lastRun && <span className="text-muted-foreground">({new Date(lastRun).toLocaleString("pt-BR")})</span>}
+  const isOk = status === "ok" || status.startsWith("ok");
+  const isPartial = status.startsWith("partial");
+  if (isOk) {
+    return <span className="inline-flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400" title={status}>
+      <CheckCircle2 className="w-3.5 h-3.5"/> {status} {lastRun && <span className="text-muted-foreground">({new Date(lastRun).toLocaleString("pt-BR")})</span>}
+    </span>;
+  }
+  if (isPartial) {
+    return <span className="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400" title={error || status}>
+      <AlertCircle className="w-3.5 h-3.5"/> {status}
+      {error && <span className="truncate max-w-[240px] font-mono text-[10px] text-muted-foreground">— {error}</span>}
     </span>;
   }
   return <span className="inline-flex items-center gap-1.5 text-xs text-red-700 dark:text-red-400" title={error}>

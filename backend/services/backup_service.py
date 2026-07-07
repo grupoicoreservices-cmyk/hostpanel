@@ -94,6 +94,12 @@ class _SFTPHandle:
         except Exception: pass
 
     def mkdirs(self, path: str) -> None:
+        """Cria (idempotente) toda a hierarquia de diretórios do path fornecido.
+
+        Após a execução, o CWD do FTP FICA no diretório criado — assim uploads
+        subsequentes podem usar nomes de arquivo RELATIVOS (essencial para
+        servidores FTP com chroot que rejeitam paths absolutos em STOR).
+        """
         parts = [p for p in path.split("/") if p]
         if self._sftp is not None:
             cur = ""
@@ -110,24 +116,35 @@ class _SFTPHandle:
                     self._ftp.cwd(p)
                 except Exception:
                     self._ftp.mkd(p); self._ftp.cwd(p)
-            self._ftp.cwd("/")
+            # NÃO volta para "/" — o caller vai fazer STOR com nome relativo
 
     def upload(self, path: str, data: bytes) -> None:
         parent = "/".join(path.split("/")[:-1])
+        filename = path.split("/")[-1]
         if parent:
             self.mkdirs(parent)
         if self._sftp is not None:
+            # SFTP aceita path absoluto sem problemas
             with self._sftp.file(path, "wb") as f:
                 f.write(data)
         else:
-            self._ftp.storbinary(f"STOR {path}", io.BytesIO(data))
+            # FTP: `mkdirs` já colocou o CWD no diretório correto.
+            # Usar nome relativo evita "550 Permission denied" em chroots.
+            self._ftp.storbinary(f"STOR {filename}", io.BytesIO(data))
 
     def download(self, path: str) -> bytes:
         if self._sftp is not None:
             with self._sftp.file(path, "rb") as f:
                 return f.read()
+        # FTP: navega ao diretório-pai e faz RETR com nome relativo
+        parent = "/".join(path.split("/")[:-1])
+        filename = path.split("/")[-1]
+        if parent:
+            self._ftp.cwd("/")
+            for p in [x for x in parent.split("/") if x]:
+                self._ftp.cwd(p)
         buf = io.BytesIO()
-        self._ftp.retrbinary(f"RETR {path}", buf.write)
+        self._ftp.retrbinary(f"RETR {filename}", buf.write)
         return buf.getvalue()
 
     def remove(self, path: str) -> None:
@@ -135,7 +152,14 @@ class _SFTPHandle:
             if self._sftp is not None:
                 self._sftp.remove(path)
             else:
-                self._ftp.delete(path)
+                # FTP: DELE com nome relativo após CD
+                parent = "/".join(path.split("/")[:-1])
+                filename = path.split("/")[-1]
+                if parent:
+                    self._ftp.cwd("/")
+                    for p in [x for x in parent.split("/") if x]:
+                        self._ftp.cwd(p)
+                self._ftp.delete(filename)
         except Exception as e:
             log.warning("failed to remove %s: %s", path, e)
 
@@ -222,14 +246,16 @@ async def backup_server_run(server_id: str) -> dict:
     servers = {s["id"]: s async for s in db.directadmin_servers.find({"id": {"$in": srv_ids}}, {"_id": 0})}
 
     counters = {"accounts_processed": 0, "uploaded": 0, "skipped": 0, "errors": 0}
+    first_error_detail: str | None = None  # armazena a 1ª mensagem para debug no UI
 
     def _run_one_account(acc: dict, dom: dict, da_srv: dict | None) -> dict:
         """Bloco síncrono — roda em thread. Retorna resumo por conta."""
-        local = {"uploaded": 0, "skipped": 0, "errors": 0, "entries": []}
+        local = {"uploaded": 0, "skipped": 0, "errors": 0, "entries": [], "first_error": None}
         try:
             m = _open_imap(acc, dom, da_srv)
         except Exception as e:
             local["errors"] += 1
+            local["first_error"] = f"IMAP login {acc['email']}: {type(e).__name__}: {e}"
             log.warning("Falha login IMAP %s: %s", acc["email"], e)
             return local
         try:
@@ -292,7 +318,10 @@ async def backup_server_run(server_id: str) -> dict:
                         })
                         local["uploaded"] += 1
                     except Exception as e:
-                        log.warning("Falha upload uid=%s de %s: %s", uid, acc["email"], e)
+                        detail = f"upload uid={uid} de {acc['email']}: {type(e).__name__}: {e}"
+                        log.warning("Falha %s", detail)
+                        if not local.get("first_error"):
+                            local["first_error"] = detail
                         local["errors"] += 1
             local["last_uid"] = uids[-1] if uids else since_uid
             local["uidvalidity"] = uidvalidity
@@ -317,6 +346,8 @@ async def backup_server_run(server_id: str) -> dict:
         counters["uploaded"] += result["uploaded"]
         counters["skipped"] += result["skipped"]
         counters["errors"] += result["errors"]
+        if not first_error_detail and result.get("first_error"):
+            first_error_detail = result["first_error"]
 
         # Persiste entradas no índice
         if result["entries"]:
@@ -351,15 +382,23 @@ async def backup_server_run(server_id: str) -> dict:
             )
 
     # Finaliza métricas
+    if counters["errors"] == 0:
+        last_status = f"ok ({counters['uploaded']} uploads)"
+        last_error = None
+    else:
+        # Mostra o detalhe do 1º erro observado — ajuda muito no debug via UI
+        last_status = f"partial: {counters['errors']} erros"
+        last_error = first_error_detail or f"{counters['errors']} erros"
+
     await db.backup_servers.update_one(
         {"id": server_id},
         {"$set": {
             "last_run_at": datetime.now(timezone.utc).isoformat(),
-            "last_status": "ok" if counters["errors"] == 0 else f"partial: {counters['errors']} erros",
-            "last_error": None if counters["errors"] == 0 else f"{counters['errors']} erros",
+            "last_status": last_status,
+            "last_error": last_error,
         }, "$inc": {"total_messages_backed_up": counters["uploaded"]}},
     )
-    log.info("Backup %s finalizado: %s", server_id, counters)
+    log.info("Backup %s finalizado: %s (first_error=%s)", server_id, counters, first_error_detail)
     return counters
 
 
