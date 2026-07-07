@@ -1,52 +1,95 @@
-import { useState } from "react";
-import { X, Paperclip, Smile, Type, MoreHorizontal, Minus, Maximize2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { X, Paperclip, Smile, Type, MoreHorizontal, Minus, Maximize2, Send, Clock, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { MAIL } from "@/lib/testIds";
 
+/** Modal de composição — suporta envio imediato, encaminhamento e agendamento. */
 export default function ComposeModal({ open, onClose, initial = {}, onSent }) {
-  const [to, setTo] = useState(initial.to || "");
-  const [subject, setSubject] = useState(initial.subject || "");
-  const [body, setBody] = useState(initial.body || "");
+  const [to, setTo] = useState("");
+  const [cc, setCc] = useState("");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [showCc, setShowCc] = useState(false);
   const [sending, setSending] = useState(false);
   const [minimized, setMinimized] = useState(false);
 
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState(""); // datetime-local string
+
+  // Reset dos campos quando o modal é aberto com um novo `initial`
+  useEffect(() => {
+    if (open) {
+      setTo(initial.to || "");
+      setCc(initial.cc || "");
+      setSubject(initial.subject || "");
+      setBody(initial.body || "");
+      setShowCc(!!initial.cc);
+      setScheduleOpen(false);
+      setScheduleAt(defaultScheduleAt());
+    }
+  }, [open, initial.to, initial.subject, initial.body, initial.cc]);
+
   if (!open) return null;
+
+  const buildPayload = () => ({
+    to: to.split(",").map((s) => s.trim()).filter(Boolean),
+    cc: cc.split(",").map((s) => s.trim()).filter(Boolean),
+    subject: subject || "(sem assunto)",
+    body_text: body,
+  });
 
   const send = async () => {
     if (!to.trim()) { toast.error("Informe o destinatário"); return; }
     setSending(true);
     try {
-      await api.post("/webmail/send", {
-        to: to.split(",").map((s) => s.trim()).filter(Boolean),
-        subject: subject || "(sem assunto)",
-        body_text: body,
-      });
+      await api.post("/webmail/send", buildPayload());
       toast.success("Mensagem enviada");
       onSent?.();
       onClose();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
-    } finally {
-      setSending(false);
-    }
+    } finally { setSending(false); }
   };
 
+  const schedule = async () => {
+    if (!to.trim()) { toast.error("Informe o destinatário"); return; }
+    if (!scheduleAt) { toast.error("Escolha data e hora"); return; }
+    const when = new Date(scheduleAt);
+    if (isNaN(when) || when.getTime() < Date.now() + 30_000) {
+      toast.error("Escolha uma data no futuro (mín. 1 min à frente)");
+      return;
+    }
+    setSending(true);
+    try {
+      await api.post("/webmail/schedule", {
+        ...buildPayload(),
+        scheduled_at: when.toISOString(),
+      });
+      toast.success(`Agendado para ${when.toLocaleString("pt-BR")}`);
+      onSent?.();
+      onClose();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally { setSending(false); }
+  };
+
+  const title = initial._mode === "forward"
+    ? "Encaminhar mensagem"
+    : initial._mode === "reply"
+      ? "Responder"
+      : "Nova mensagem";
+
   return (
-    <div className={`fixed z-50 bottom-6 right-6 w-[520px] max-w-[calc(100vw-32px)] bg-card border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden voxyra-compose-anim ${
-      minimized ? "h-14" : "h-[560px] max-h-[calc(100vh-48px)]"
+    <div className={`fixed z-50 bottom-6 right-6 w-[560px] max-w-[calc(100vw-32px)] bg-card border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden voxyra-compose-anim ${
+      minimized ? "h-14" : "h-[620px] max-h-[calc(100vh-48px)]"
     }`}>
       <div className="bg-slate-900 text-white px-4 py-3 flex items-center gap-2">
-        <div className="font-display font-semibold text-sm flex-1">Nova mensagem</div>
+        <div className="font-display font-semibold text-sm flex-1">{title}</div>
         <button onClick={() => setMinimized(!minimized)} className="p-1 hover:bg-white/10 rounded" title="Minimizar">
           {minimized ? <Maximize2 className="w-3.5 h-3.5"/> : <Minus className="w-3.5 h-3.5"/>}
         </button>
-        <button
-          data-testid={MAIL.composeClose}
-          onClick={onClose}
-          className="p-1 hover:bg-white/10 rounded"
-          title="Fechar"
-        >
+        <button data-testid={MAIL.composeClose} onClick={onClose} className="p-1 hover:bg-white/10 rounded" title="Fechar">
           <X className="w-4 h-4"/>
         </button>
       </div>
@@ -54,13 +97,33 @@ export default function ComposeModal({ open, onClose, initial = {}, onSent }) {
       {!minimized && (
         <>
           <div className="p-3 border-b border-border">
-            <input
-              data-testid={MAIL.composeTo}
-              placeholder="Para"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              className="w-full px-2 py-2 text-sm bg-transparent focus:outline-none border-b border-border/50"
-            />
+            <div className="flex items-center gap-2 border-b border-border/50">
+              <input
+                data-testid={MAIL.composeTo}
+                placeholder="Para"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="flex-1 px-2 py-2 text-sm bg-transparent focus:outline-none"
+              />
+              {!showCc && (
+                <button
+                  data-testid="compose-toggle-cc"
+                  onClick={() => setShowCc(true)}
+                  className="text-[11px] uppercase font-bold tracking-widest text-muted-foreground hover:text-primary px-2"
+                >
+                  Cc
+                </button>
+              )}
+            </div>
+            {showCc && (
+              <input
+                data-testid="compose-cc"
+                placeholder="Cc"
+                value={cc}
+                onChange={(e) => setCc(e.target.value)}
+                className="w-full px-2 py-2 text-sm bg-transparent focus:outline-none border-b border-border/50"
+              />
+            )}
             <input
               data-testid={MAIL.composeSubject}
               placeholder="Assunto"
@@ -69,37 +132,117 @@ export default function ComposeModal({ open, onClose, initial = {}, onSent }) {
               className="w-full px-2 py-2 text-sm bg-transparent focus:outline-none"
             />
           </div>
+
           <textarea
             data-testid={MAIL.composeBody}
-            placeholder="Escreva sua mensagem…"
+            placeholder={initial._mode === "forward" ? "Adicione um comentário (opcional)…" : "Escreva sua mensagem…"}
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            className="flex-1 px-4 py-3 text-sm bg-transparent focus:outline-none resize-none voxyra-scroll"
+            className="flex-1 px-4 py-3 text-sm bg-transparent focus:outline-none resize-none voxyra-scroll-visible"
           />
-          <div className="p-3 border-t border-border flex items-center gap-2">
-            <button
-              data-testid={MAIL.composeSend}
-              onClick={send}
-              disabled={sending}
-              className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-full px-5 py-2 font-semibold text-sm hover:bg-blue-700 active:scale-[.98] transition-all disabled:opacity-60"
-            >
-              {sending ? "Enviando…" : "Enviar"}
-            </button>
-            <button className="p-2 rounded-lg hover:bg-muted text-muted-foreground" title="Anexar">
+
+          <div className="p-3 border-t border-border flex items-center gap-2 flex-wrap">
+            {/* Split button: Enviar | Agendar */}
+            <div className="inline-flex rounded-full overflow-hidden shadow-sm">
+              <button
+                data-testid={MAIL.composeSend}
+                onClick={send}
+                disabled={sending}
+                className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-5 py-2 font-semibold text-sm hover:bg-blue-700 active:scale-[.98] transition-all disabled:opacity-60"
+              >
+                <Send className="w-3.5 h-3.5"/> {sending ? "Enviando…" : "Enviar"}
+              </button>
+              <button
+                data-testid="compose-schedule-toggle"
+                onClick={() => setScheduleOpen((v) => !v)}
+                disabled={sending}
+                className="bg-primary/90 text-primary-foreground px-3 border-l border-primary-foreground/20 hover:bg-blue-700 transition-colors disabled:opacity-60"
+                title="Agendar envio"
+              >
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${scheduleOpen ? "rotate-180" : ""}`}/>
+              </button>
+            </div>
+
+            <button className="p-2 rounded-lg hover:bg-muted text-muted-foreground" title="Anexar (em breve)">
               <Paperclip className="w-4 h-4"/>
             </button>
-            <button className="p-2 rounded-lg hover:bg-muted text-muted-foreground" title="Formatar">
+            <button className="p-2 rounded-lg hover:bg-muted text-muted-foreground" title="Formatar (em breve)">
               <Type className="w-4 h-4"/>
             </button>
-            <button className="p-2 rounded-lg hover:bg-muted text-muted-foreground" title="Emoji">
+            <button className="p-2 rounded-lg hover:bg-muted text-muted-foreground" title="Emoji (em breve)">
               <Smile className="w-4 h-4"/>
             </button>
             <button className="p-2 rounded-lg hover:bg-muted text-muted-foreground ml-auto" title="Mais">
               <MoreHorizontal className="w-4 h-4"/>
             </button>
           </div>
+
+          {scheduleOpen && (
+            <div data-testid="compose-schedule-panel" className="border-t border-border bg-muted/40 p-4 flex flex-wrap items-end gap-3">
+              <div className="flex-1 min-w-[200px]">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1 mb-1">
+                  <Clock className="w-3 h-3"/> Enviar em
+                </label>
+                <input
+                  data-testid="compose-schedule-input"
+                  type="datetime-local"
+                  value={scheduleAt}
+                  onChange={(e) => setScheduleAt(e.target.value)}
+                  min={defaultScheduleAt()}
+                  className="w-full px-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                />
+              </div>
+              <div className="flex gap-1.5">
+                {[
+                  { label: "+1h", ms: 3600e3 },
+                  { label: "amanhã 9h", fn: () => setNextMorning(setScheduleAt) },
+                  { label: "seg 9h", fn: () => setNextMonday(setScheduleAt) },
+                ].map((p) => (
+                  <button
+                    key={p.label}
+                    onClick={() => p.fn ? p.fn() : setScheduleAt(fmtLocal(new Date(Date.now() + p.ms)))}
+                    className="px-2.5 py-1.5 rounded-md border border-border text-[11px] font-semibold hover:bg-card transition-colors"
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                data-testid="compose-schedule-submit"
+                onClick={schedule}
+                disabled={sending}
+                className="inline-flex items-center gap-1.5 bg-emerald-600 text-white rounded-lg px-3 py-2 text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60"
+              >
+                <Clock className="w-3.5 h-3.5"/> Agendar envio
+              </button>
+            </div>
+          )}
         </>
       )}
     </div>
   );
+}
+
+/* ---------- helpers ---------- */
+function pad(n) { return String(n).padStart(2, "0"); }
+function fmtLocal(d) {
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function defaultScheduleAt() {
+  const d = new Date(Date.now() + 3600e3); // +1h
+  d.setSeconds(0, 0);
+  return fmtLocal(d);
+}
+function setNextMorning(setter) {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(9, 0, 0, 0);
+  setter(fmtLocal(d));
+}
+function setNextMonday(setter) {
+  const d = new Date();
+  const diff = (8 - d.getDay()) % 7 || 7;
+  d.setDate(d.getDate() + diff);
+  d.setHours(9, 0, 0, 0);
+  setter(fmtLocal(d));
 }

@@ -283,6 +283,18 @@ class MailClient:
             except Exception:
                 pass
 
+    def flag(self, uid: str, folder: str, flag: str, add: bool = True) -> None:
+        """Adiciona ou remove uma flag IMAP (ex: \\Seen, \\Flagged, \\Deleted)."""
+        m = self._imap()
+        try:
+            m.select(folder)
+            op = "+FLAGS" if add else "-FLAGS"
+            m.store(uid, op, flag)
+        finally:
+            try: m.logout()
+            except Exception: pass
+
+
     def bulk_delete(self, uids: list[str], folder: str) -> int:
         if not uids:
             return 0

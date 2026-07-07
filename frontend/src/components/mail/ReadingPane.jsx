@@ -1,4 +1,5 @@
-import { Archive, ShieldAlert, ShieldCheck, Reply, MoreHorizontal, Trash2, Forward, MailOpen, Ban, ExternalLink } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Archive, ShieldAlert, ShieldCheck, Reply, MoreHorizontal, Trash2, Forward, MailOpen, Ban, ExternalLink, Printer, Code, EyeOff } from "lucide-react";
 import DOMPurify from "dompurify";
 import { MAIL } from "@/lib/testIds";
 
@@ -17,7 +18,25 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   }
 });
 
-export default function ReadingPane({ message, onArchive, onSpam, onDelete, onReply, onClose, onReplyQuick, onNotSpam, onBlockSender, isSpamFolder, onOpenInNewTab, hideOpenNewTab }) {
+export default function ReadingPane({
+  message, onArchive, onSpam, onDelete, onReply, onClose, onReplyQuick,
+  onNotSpam, onBlockSender, isSpamFolder, onOpenInNewTab, hideOpenNewTab,
+  onForward, onMarkUnread, onShowSource,
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  const [rawOpen, setRawOpen] = useState(false);
+
+  // Fecha dropdown ao clicar fora
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [menuOpen]);
+
   if (!message) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background/40 dark:bg-slate-950/40">
@@ -34,89 +53,103 @@ export default function ReadingPane({ message, onArchive, onSpam, onDelete, onRe
     ? <div className="prose prose-sm dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(message.body_html, SANITIZE_CONFIG) }} />
     : <div className="whitespace-pre-wrap text-sm leading-relaxed">{message.body_text || message.preview || ""}</div>;
 
+  const doPrint = () => {
+    setMenuOpen(false);
+    const html = message.body_html ? DOMPurify.sanitize(message.body_html, SANITIZE_CONFIG) : `<pre style="white-space:pre-wrap;font-family:sans-serif">${escapeHtml(message.body_text || "")}</pre>`;
+    const w = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
+    if (!w) return;
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(message.subject || "")}</title>
+      <style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;padding:24px;color:#111}
+      h1{font-size:20px;margin:0 0 4px 0}.meta{color:#555;font-size:12px;margin-bottom:16px}
+      .body{border-top:1px solid #ddd;padding-top:16px}</style></head><body>
+      <h1>${escapeHtml(message.subject || "")}</h1>
+      <div class="meta">De ${escapeHtml(message.from_addr || "")} · ${escapeHtml(message.date || "")}</div>
+      <div class="body">${html}</div>
+      <script>window.onload=()=>setTimeout(()=>window.print(),300)</script>
+      </body></html>`);
+    w.document.close();
+  };
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-background/40 dark:bg-slate-950/40">
       {/* Action bar */}
-      <div className="p-4 border-b border-border flex items-center gap-2 flex-wrap bg-card">
+      <div className="p-4 border-b border-border flex items-center gap-2 flex-wrap bg-card relative" ref={menuRef}>
         {isSpamFolder ? (
           <>
-            <button
-              data-testid="reading-not-spam-btn"
-              onClick={() => onNotSpam?.(false)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors"
-            >
+            <button data-testid="reading-not-spam-btn" onClick={() => onNotSpam?.(false)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors">
               <ShieldCheck className="w-3.5 h-3.5" /> Não é spam
             </button>
-            <button
-              data-testid="reading-not-spam-wl-btn"
-              onClick={() => onNotSpam?.(true)}
+            <button data-testid="reading-not-spam-wl-btn" onClick={() => onNotSpam?.(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-600 text-emerald-700 dark:text-emerald-400 text-xs font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors"
-              title="Move para a Entrada e adiciona remetente ao whitelist do DirectAdmin"
-            >
+              title="Move para a Entrada e adiciona remetente ao whitelist do DirectAdmin">
               <ShieldCheck className="w-3.5 h-3.5" /> Não é spam + Whitelist
             </button>
           </>
         ) : (
           <>
-            <button
-              data-testid={MAIL.archiveBtn}
-              onClick={onArchive}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors"
-            >
+            <button data-testid={MAIL.archiveBtn} onClick={onArchive}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors">
               <Archive className="w-3.5 h-3.5" /> Arquivar
             </button>
-            <button
-              data-testid={MAIL.spamBtn}
-              onClick={() => onSpam?.(false)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors"
-            >
+            <button data-testid={MAIL.spamBtn} onClick={() => onSpam?.(false)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors">
               <ShieldAlert className="w-3.5 h-3.5" /> Marcar spam
             </button>
-            <button
-              data-testid="reading-spam-bl-btn"
-              onClick={() => onSpam?.(true)}
+            <button data-testid="reading-spam-bl-btn" onClick={() => onSpam?.(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-destructive hover:bg-destructive/10 transition-colors"
-              title="Move para o Spam e adiciona remetente ao blacklist do DirectAdmin"
-            >
+              title="Move para o Spam e adiciona remetente ao blacklist do DirectAdmin">
               <Ban className="w-3.5 h-3.5" /> Spam + Bloquear remetente
             </button>
-            <button
-              data-testid={MAIL.replyBtn}
-              onClick={onReply}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-blue-700 transition-colors"
-            >
+            <button data-testid={MAIL.replyBtn} onClick={onReply}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-blue-700 transition-colors">
               <Reply className="w-3.5 h-3.5" /> Responder
+            </button>
+            <button data-testid="reading-forward-btn" onClick={onForward}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors">
+              <Forward className="w-3.5 h-3.5" /> Encaminhar
             </button>
           </>
         )}
-        <button
-          data-testid={MAIL.deleteBtn}
-          onClick={onDelete}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors text-destructive"
-        >
+        <button data-testid={MAIL.deleteBtn} onClick={onDelete}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors text-destructive">
           <Trash2 className="w-3.5 h-3.5" /> Excluir
         </button>
-        <button
-          data-testid={MAIL.moreBtn}
-          className="p-2 rounded-lg border border-border hover:bg-muted transition-colors ml-auto"
-          title="Mais ações"
-        >
-          <MoreHorizontal className="w-4 h-4" />
-        </button>
-        {!hideOpenNewTab && onOpenInNewTab && (
-          <button
-            data-testid="reading-open-new-tab-btn"
-            onClick={onOpenInNewTab}
-            className="p-2 rounded-lg border border-border hover:bg-muted transition-colors"
-            title="Abrir em nova aba"
-          >
-            <ExternalLink className="w-4 h-4" />
-          </button>
-        )}
+
+        {/* Ações agrupadas no menu de 3 pontos — agora funcional */}
+        <div className="ml-auto flex items-center gap-2">
+          {!hideOpenNewTab && onOpenInNewTab && (
+            <button data-testid="reading-open-new-tab-btn" onClick={onOpenInNewTab}
+              className="p-2 rounded-lg border border-border hover:bg-muted transition-colors"
+              title="Abrir em nova aba">
+              <ExternalLink className="w-4 h-4" />
+            </button>
+          )}
+          <div className="relative">
+            <button
+              data-testid={MAIL.moreBtn}
+              onClick={() => setMenuOpen((v) => !v)}
+              className="p-2 rounded-lg border border-border hover:bg-muted transition-colors"
+              title="Mais ações"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-11 w-56 z-30 bg-card border border-border rounded-xl shadow-xl p-1">
+                <MenuItem icon={Forward} label="Encaminhar" onClick={() => { setMenuOpen(false); onForward?.(); }} testid="reading-menu-forward"/>
+                <MenuItem icon={EyeOff} label="Marcar como não lida" onClick={() => { setMenuOpen(false); onMarkUnread?.(); }} testid="reading-menu-unread"/>
+                <MenuItem icon={Printer} label="Imprimir" onClick={doPrint} testid="reading-menu-print"/>
+                <MenuItem icon={Code} label={rawOpen ? "Ocultar cabeçalhos" : "Mostrar cabeçalhos"}
+                  onClick={() => { setMenuOpen(false); setRawOpen((v) => !v); onShowSource?.(); }}
+                  testid="reading-menu-source"/>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto voxyra-scroll p-6">
+      {/* Content — scrollbar sempre visível via voxyra-scroll-visible */}
+      <div className="flex-1 overflow-y-scroll voxyra-scroll-visible p-6" data-testid="reading-scroll-area">
         <div className="mb-4 flex items-center gap-2 flex-wrap">
           <h1 className="font-display text-3xl font-bold tracking-tight">{message.subject || "(sem assunto)"}</h1>
           {message.folder && (
@@ -139,12 +172,25 @@ export default function ReadingPane({ message, onArchive, onSpam, onDelete, onRe
           <div className="text-xs text-muted-foreground">{message.date}</div>
         </div>
 
+        {rawOpen && (
+          <details open className="mb-4 rounded-lg border border-border bg-muted/40 p-3 text-[11px] font-mono">
+            <summary className="cursor-pointer font-semibold">Cabeçalhos técnicos</summary>
+            <pre className="mt-2 whitespace-pre-wrap break-all">
+{`Message-ID: ${message.message_id || "—"}
+From: ${message.from_name ? `${message.from_name} <${message.from_addr}>` : message.from_addr}
+To: ${(message.to || []).join(", ")}
+Date: ${message.date}
+Folder: ${message.folder}
+Spam-Score: ${message.spam_score ?? "—"}
+Spam-Status: ${message.spam_status || "—"}`}
+            </pre>
+          </details>
+        )}
+
         <div className="border border-border rounded-xl p-6 bg-card">
           {(message.spam_flag || (typeof message.spam_score === "number" && message.spam_score >= 3)) && (
-            <div
-              data-testid="reading-spam-warning"
-              className="mb-4 flex items-start gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-4 py-3"
-            >
+            <div data-testid="reading-spam-warning"
+              className="mb-4 flex items-start gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-4 py-3">
               <ShieldAlert className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
               <div className="flex-1 text-xs">
                 <div className="font-semibold text-red-800 dark:text-red-300">
@@ -183,16 +229,34 @@ export default function ReadingPane({ message, onArchive, onSpam, onDelete, onRe
         )}
 
         {/* Quick reply */}
-        <div className="mt-6">
-          <button
-            data-testid="reading-quick-reply-btn"
-            onClick={onReplyQuick}
-            className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-border bg-card hover:bg-muted transition-colors text-sm text-muted-foreground"
-          >
-            <Forward className="w-4 h-4" /> Clique aqui para responder rapidamente…
+        <div className="mt-6 flex gap-2">
+          <button data-testid="reading-quick-reply-btn" onClick={onReplyQuick}
+            className="flex-1 flex items-center gap-2 px-4 py-3 rounded-xl border border-border bg-card hover:bg-muted transition-colors text-sm text-muted-foreground">
+            <Reply className="w-4 h-4" /> Responder rapidamente…
+          </button>
+          <button data-testid="reading-quick-forward-btn" onClick={onForward}
+            className="flex-1 flex items-center gap-2 px-4 py-3 rounded-xl border border-border bg-card hover:bg-muted transition-colors text-sm text-muted-foreground">
+            <Forward className="w-4 h-4" /> Encaminhar…
           </button>
         </div>
       </div>
     </div>
   );
+}
+
+function MenuItem({ icon: Icon, label, onClick, testid }) {
+  return (
+    <button
+      data-testid={testid}
+      onClick={onClick}
+      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors text-sm text-left"
+    >
+      <Icon className="w-4 h-4 text-muted-foreground"/>
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function escapeHtml(s) {
+  return String(s || "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }

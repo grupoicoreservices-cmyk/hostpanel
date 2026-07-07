@@ -255,3 +255,4 @@ class BackupServerOut(BackupServerBase):
     last_status: Optional[str] = None   # ok | error: … | never
     last_error: Optional[str] = None
     total_messages_backed_up: int = 0
+    next_run_at: Optional[str] = None

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Mail, Lock, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
@@ -11,7 +11,10 @@ import { AUTH } from "@/lib/testIds";
  *  Tenta bypass IMAP primeiro (autentica direto contra o servidor do domínio),
  *  cai no login normal se o domínio não tiver bypass ativo.
  *  Ao sair do campo e-mail (blur), busca o branding do domínio no backend
- *  e exibe logo + imagem hero personalizados. */
+ *  e exibe logo + imagem hero personalizados.
+ *  Além disso, ao carregar a página consulta /host-branding para carregar
+ *  branding automaticamente quando o cliente acessa via DNS próprio
+ *  (ex: mail.empresa-cliente.com.br). */
 export default function ClientLogin() {
   const { refresh } = useAuth();
   const navigate = useNavigate();
@@ -19,9 +22,25 @@ export default function ClientLogin() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [branding, setBranding] = useState(null); // {domain, logo_url, hero_image_url, empresa}
+  const [branding, setBranding] = useState(null);
   const [brandingLoading, setBrandingLoading] = useState(false);
 
+  // 1) White-label por Host: se o hostname acessado for um domínio hospedado,
+  //    já carrega logo/hero/nome-da-empresa antes mesmo do usuário digitar.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get("/public/host-branding");
+        if (!cancelled && data && data.domain) setBranding(data);
+      } catch {
+        /* silencioso: sem host-branding, segue com visual neutro */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // 2) Ao sair do campo e-mail, tenta refinar o branding pelo domínio do e-mail
   const fetchBranding = useCallback(async (rawEmail) => {
     const e = (rawEmail || "").trim().toLowerCase();
     const at = e.indexOf("@");
@@ -33,8 +52,7 @@ export default function ClientLogin() {
       const res = await api.get(`/public/domains/${encodeURIComponent(domain)}/branding`);
       setBranding(res.data);
     } catch {
-      // Domínio não hospedado ou erro: mantém visual padrão
-      setBranding(null);
+      // Domínio não hospedado: mantém o branding atual (pode ser o host-branding)
     } finally {
       setBrandingLoading(false);
     }

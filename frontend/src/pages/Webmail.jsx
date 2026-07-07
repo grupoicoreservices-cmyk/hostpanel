@@ -115,8 +115,30 @@ export default function Webmail() {
       to: selected.from_addr,
       subject: selected.subject?.startsWith("Re:") ? selected.subject : `Re: ${selected.subject || ""}`,
       body: `\n\n\n--- Mensagem original ---\nDe: ${selected.from_addr}\n${(selected.body_text || "").slice(0, 500)}`,
+      _mode: "reply",
     });
     setComposing(true);
+  };
+
+  const doForward = () => {
+    if (!selected) return;
+    const header = `\n\n\n---------- Mensagem encaminhada ----------\nDe: ${selected.from_name ? `${selected.from_name} <${selected.from_addr}>` : selected.from_addr}\nData: ${selected.date}\nAssunto: ${selected.subject}\nPara: ${(selected.to || []).join(", ")}\n\n`;
+    setComposeInitial({
+      to: "",
+      subject: selected.subject?.toLowerCase().startsWith("fwd:") ? selected.subject : `Fwd: ${selected.subject || ""}`,
+      body: header + (selected.body_text || selected.preview || ""),
+      _mode: "forward",
+    });
+    setComposing(true);
+  };
+
+  const doMarkUnread = async () => {
+    if (!selected) return;
+    try {
+      await api.post(`/webmail/messages/${selected.uid}/mark-unread`, null, { params: { folder } });
+      toast.success("Marcada como não lida");
+      mutate();
+    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Falha"); }
   };
 
   const doArchive = async () => {
@@ -302,6 +324,8 @@ export default function Webmail() {
                 onDelete={doDelete}
                 onReply={doReply}
                 onReplyQuick={doReply}
+                onForward={doForward}
+                onMarkUnread={doMarkUnread}
                 onClose={() => setSelected(null)}
                 onOpenInNewTab={openInNewTab}
                 isSpamFolder={isSpamFolder}

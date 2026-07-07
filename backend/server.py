@@ -99,7 +99,27 @@ async def on_startup():
     except Exception as e:
         logger.error(f"Seed error: {e}")
 
+    # Indexes para o backup índice
+    try:
+        await db.backup_servers.create_index("id", unique=True)
+        await db.backup_index.create_index("id", unique=True)
+        await db.backup_index.create_index([("server_id", 1), ("account_id", 1), ("backed_up_at", -1)])
+    except Exception as e:
+        logger.warning(f"Backup index setup: {e}")
+
+    # Scheduler de backup
+    try:
+        from services.backup_scheduler import start_scheduler
+        start_scheduler()
+    except Exception as e:
+        logger.warning(f"Backup scheduler start: {e}")
+
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    try:
+        from services.backup_scheduler import stop_scheduler
+        stop_scheduler()
+    except Exception:
+        pass
     await close_db()

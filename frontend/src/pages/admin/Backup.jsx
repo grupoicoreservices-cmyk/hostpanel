@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, X, Server, Trash2, TestTube2, Pencil, Power, HardDrive, CheckCircle2, XCircle, Clock, Info } from "lucide-react";
+import { Plus, X, Server, Trash2, TestTube2, Pencil, Power, HardDrive, CheckCircle2, XCircle, Clock, Info, Play, FileSearch, ArrowRight, RefreshCw } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 

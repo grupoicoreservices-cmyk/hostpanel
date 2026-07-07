@@ -26,6 +26,10 @@ from models import (
 )
 
 
+from services.backup_service import backup_server_run, restore_entries
+from services.backup_scheduler import reload_jobs, next_run_iso
+
+
 router = APIRouter(prefix="/api/backup", tags=["backup"])
 
 
@@ -40,9 +44,10 @@ def _scope_filter(user: dict) -> dict:
 
 
 def _serialize(doc: dict) -> BackupServerOut:
-    """Remove campos sensíveis e devolve model."""
+    """Remove campos sensíveis, adiciona next_run_at do scheduler e devolve model."""
     for k in ("password_enc", "private_key_enc", "passphrase_enc", "_id"):
         doc.pop(k, None)
+    doc["next_run_at"] = next_run_iso(doc["id"])
     return BackupServerOut(**doc)
 
 
@@ -192,6 +197,7 @@ async def create_server(payload: BackupServerCreate, user: dict = Depends(requir
         raise HTTPException(400, "Chave privada obrigatória para autenticação por chave")
 
     await db.backup_servers.insert_one(doc)
+    await reload_jobs()
     return _serialize(dict(doc))
 
 
@@ -234,6 +240,7 @@ async def update_server(server_id: str, payload: BackupServerUpdate, user: dict 
 
     if upd:
         await db.backup_servers.update_one({"id": server_id}, {"$set": upd})
+    await reload_jobs()
     fresh = await db.backup_servers.find_one({"id": server_id}, {"_id": 0})
     return _serialize(dict(fresh))
 
@@ -247,6 +254,9 @@ async def delete_server(server_id: str, user: dict = Depends(require_admin)):
     if user.get("role") != "superadmin" and doc.get("empresa_id") not in (None, user.get("empresa_id")):
         raise HTTPException(403, "Fora do escopo")
     await db.backup_servers.delete_one({"id": server_id})
+    # Também remove entradas de índice órfãs (não apaga arquivos SFTP)
+    await db.backup_index.delete_many({"server_id": server_id})
+    await reload_jobs()
     return {"ok": True}
 
 
@@ -272,3 +282,77 @@ async def test_server(server_id: str, user: dict = Depends(require_admin)):
     if not ok:
         raise HTTPException(502, msg)
     return {"ok": True, "message": msg}
+
+
+# ============================================================
+# Fase 2 — Run manual, Archive listing e Restore
+# ============================================================
+from pydantic import BaseModel  # noqa: E402
+
+class RestorePayload(BaseModel):
+    entry_ids: list[str]
+    target_folder: str = "INBOX"
+
+
+@router.post("/servers/{server_id}/run")
+async def run_now(server_id: str, user: dict = Depends(require_admin)):
+    """Dispara imediatamente uma corrida de backup para o servidor."""
+    import asyncio
+    db = get_db()
+    srv = await db.backup_servers.find_one({"id": server_id})
+    if not srv:
+        raise HTTPException(404, "Servidor não encontrado")
+    if user.get("role") != "superadmin" and srv.get("empresa_id") not in (None, user.get("empresa_id")):
+        raise HTTPException(403, "Fora do escopo")
+    # Dispara em background para não bloquear a resposta HTTP
+    async def _bg():
+        try:
+            await backup_server_run(server_id)
+        except Exception:
+            pass
+    asyncio.create_task(_bg())
+    return {"ok": True, "message": "Backup disparado em background"}
+
+
+@router.get("/archive")
+async def list_archive(
+    server_id: str | None = None,
+    account_id: str | None = None,
+    dominio_id: str | None = None,
+    q: str | None = None,
+    limit: int = 100,
+    user: dict = Depends(require_admin),
+):
+    """Lista entradas do índice de backup com filtros e paginação simples."""
+    db = get_db()
+    query: dict = {"deleted_at": None}
+    if server_id:  query["server_id"] = server_id
+    if account_id: query["account_id"] = account_id
+    if dominio_id: query["dominio_id"] = dominio_id
+    if q:
+        query["$or"] = [
+            {"subject": {"$regex": q, "$options": "i"}},
+            {"from_addr": {"$regex": q, "$options": "i"}},
+            {"from_name": {"$regex": q, "$options": "i"}},
+        ]
+    if user.get("role") != "superadmin":
+        query["empresa_id"] = user.get("empresa_id")
+    limit = max(1, min(500, int(limit)))
+    rows = []
+    async for d in db.backup_index.find(query, {"_id": 0}).sort("backed_up_at", -1).limit(limit):
+        rows.append(d)
+    return {"total": len(rows), "entries": rows}
+
+
+@router.post("/servers/{server_id}/restore")
+async def restore(server_id: str, payload: RestorePayload, user: dict = Depends(require_admin)):
+    db = get_db()
+    srv = await db.backup_servers.find_one({"id": server_id})
+    if not srv:
+        raise HTTPException(404, "Servidor não encontrado")
+    if user.get("role") != "superadmin" and srv.get("empresa_id") not in (None, user.get("empresa_id")):
+        raise HTTPException(403, "Fora do escopo")
+    if not payload.entry_ids:
+        raise HTTPException(400, "Nenhuma entrada selecionada")
+    result = await restore_entries(server_id, payload.entry_ids, payload.target_folder or "INBOX")
+    return {"ok": True, **result}

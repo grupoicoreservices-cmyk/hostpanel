@@ -90,6 +90,27 @@
   background: hsl(var(--muted-foreground) / 0.5);
 }
 
+/* Scrollbar sempre visível (usado no ReadingPane e em áreas de conteúdo grande) */
+.voxyra-scroll-visible {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.5) transparent;
+}
+.voxyra-scroll-visible::-webkit-scrollbar { width: 12px; height: 12px; }
+.voxyra-scroll-visible::-webkit-scrollbar-track {
+  background: hsl(var(--muted) / 0.35);
+  border-radius: 8px;
+}
+.voxyra-scroll-visible::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.55);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.voxyra-scroll-visible::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.9);
+  background-clip: content-box;
+}
+
 /* Formulários Roundcube-style */
 .input {
   @apply w-full px-3 py-2.5 rounded-xl border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all;
