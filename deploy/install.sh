@@ -129,12 +129,20 @@ install -m 644 "$APP_DIR/deploy/systemd/hostpanel-backend.service" /etc/systemd/
 systemctl daemon-reload
 systemctl enable --now hostpanel-backend
 
-install -m 644 "$APP_DIR/deploy/nginx/mailweb-br01.voxyra.net.br.conf" /etc/nginx/sites-available/$DOMAIN.conf
-ln -sf /etc/nginx/sites-available/$DOMAIN.conf /etc/nginx/sites-enabled/$DOMAIN.conf
+mkdir -p /var/www/certbot
 [[ -e /etc/nginx/sites-enabled/default ]] && rm -f /etc/nginx/sites-enabled/default
 
-# Se ainda não houver certificado, ativa somente HTTP (com bloco reduzido) para o certbot funcionar
-if [[ ! -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
+# IMPORTANTE: nunca instale o vhost com SSL antes do certificado existir,
+# senão o `nginx -t` falha e o certbot não consegue rodar.
+if [[ -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
+  # Certificado já existe — usa o vhost definitivo (HTTPS + HSTS + rate limit)
+  install -m 644 "$APP_DIR/deploy/nginx/mailweb-br01.voxyra.net.br.conf" \
+                 /etc/nginx/sites-available/$DOMAIN.conf
+  ln -sf /etc/nginx/sites-available/$DOMAIN.conf /etc/nginx/sites-enabled/$DOMAIN.conf
+  nginx -t && systemctl reload nginx
+  ok "Nginx configurado com HTTPS em https://$DOMAIN"
+else
+  # Sem certificado — instala vhost HTTP-only para o certbot completar o desafio
   warn "Certificado SSL ainda não existe. Servindo em HTTP temporariamente…"
   cat > /etc/nginx/sites-available/$DOMAIN.conf <<TMP
 server {
@@ -154,13 +162,15 @@ server {
     location / { try_files \$uri /index.html; }
 }
 TMP
+  ln -sf /etc/nginx/sites-available/$DOMAIN.conf /etc/nginx/sites-enabled/$DOMAIN.conf
   nginx -t && systemctl reload nginx
-  ok "Nginx respondendo em http://$DOMAIN — rode agora:"
-  echo "    sudo certbot --nginx -d $DOMAIN --agree-tos -m admin@voxyra.com --redirect --non-interactive"
-  echo "    sudo install -m 644 $APP_DIR/deploy/nginx/mailweb-br01.voxyra.net.br.conf /etc/nginx/sites-available/$DOMAIN.conf"
-  echo "    sudo nginx -t && sudo systemctl reload nginx"
-else
-  nginx -t && systemctl reload nginx
+  ok "Nginx respondendo em http://$DOMAIN"
+  echo
+  warn "AGORA execute estes 3 comandos EM ORDEM para ativar o HTTPS:"
+  echo "  1) sudo certbot --nginx -d $DOMAIN --agree-tos -m admin@voxyra.com --redirect --non-interactive"
+  echo "  2) sudo install -m 644 $APP_DIR/deploy/nginx/mailweb-br01.voxyra.net.br.conf /etc/nginx/sites-available/$DOMAIN.conf"
+  echo "  3) sudo nginx -t && sudo systemctl reload nginx"
+  echo
 fi
 
 # ---- Firewall ----

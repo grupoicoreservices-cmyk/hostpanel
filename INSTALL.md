@@ -80,17 +80,32 @@ O script executa 9 etapas:
 8. Faz build do frontend com `REACT_APP_BACKEND_URL=https://mailweb-br01.voxyra.net.br`
 9. Configura systemd + Nginx + UFW
 
-No fim, o script pede para você emitir o SSL:
+No fim, o script pede para você emitir o SSL. Você tem 2 opções:
+
+**Opção rápida (uma linha)** — use o script `enable-ssl.sh` que já vem no repo:
 
 ```bash
+sudo bash /opt/hostpanel/deploy/enable-ssl.sh
+```
+
+Ele valida DNS/HTTP, emite o certificado via certbot, aplica o vhost definitivo (HSTS + rate-limit + cache) e testa o HTTPS ao final.
+
+**Opção manual** (3 passos, se preferir fazer com controle):
+
+```bash
+# 1) emite o cert (certbot edita o vhost HTTP e adiciona o server block SSL)
 sudo certbot --nginx -d mailweb-br01.voxyra.net.br \
      --agree-tos -m admin@voxyra.com --redirect --non-interactive
 
-# depois substitua o vhost temporário pelo definitivo (com HSTS/security headers):
+# 2) substitui o vhost temporário pelo definitivo (com HSTS/security headers)
 sudo install -m 644 /opt/hostpanel/deploy/nginx/mailweb-br01.voxyra.net.br.conf \
      /etc/nginx/sites-available/mailweb-br01.voxyra.net.br.conf
+
+# 3) reload
 sudo nginx -t && sudo systemctl reload nginx
 ```
+
+> ⚠️ **Ordem é obrigatória**: nunca copie o vhost definitivo antes do certbot rodar — ele referencia arquivos de certificado que ainda não existem e o `nginx -t` falha.
 
 Pronto — abra **https://mailweb-br01.voxyra.net.br/login**.
 
