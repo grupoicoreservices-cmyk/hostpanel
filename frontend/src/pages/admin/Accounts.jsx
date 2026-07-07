@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Mail, X, KeyRound, HardDrive, PauseCircle, PlayCircle } from "lucide-react";
+import { Plus, Trash2, Mail, X, KeyRound, HardDrive, PauseCircle, PlayCircle, RefreshCw } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { ADMIN } from "@/lib/testIds";
 
@@ -54,13 +54,18 @@ export default function AdminAccounts() {
         <div>
           <div className="text-[11px] uppercase font-bold tracking-widest text-muted-foreground">Painel Admin</div>
           <h1 className="font-display text-4xl font-bold tracking-tight">Contas de e-mail</h1>
-          <p className="text-sm text-muted-foreground mt-1">Provisione contas via DirectAdmin e ajuste quota, senha e status.</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Contas provisionadas via DirectAdmin ou registradas automaticamente pelo webmail (bypass login).
+            Ajuste quota, senha e status.
+          </p>
         </div>
         <button
-          data-testid={ADMIN.addBtn}
-          onClick={() => setShowForm(true)}
-          className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-xl px-4 py-2.5 font-semibold text-sm hover:bg-blue-700 active:scale-[.98] transition-all"
-        ><Plus className="w-4 h-4"/> Nova conta</button>
+          data-testid="admin-refresh-contas"
+          onClick={load}
+          className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2.5 font-semibold text-sm hover:bg-muted transition-all"
+        >
+          <RefreshCw className="w-4 h-4"/> Atualizar
+        </button>
       </div>
 
       <div className="rounded-2xl border border-border bg-card overflow-hidden">
