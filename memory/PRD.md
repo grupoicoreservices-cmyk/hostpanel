@@ -51,19 +51,23 @@ Construir um Webmail Host SaaS multiempresa/multidomínio integrado a servidores
    - Backend: `services/mail.py::list_messages` agora aceita `page` (1-based) + `page_size` e retorna envelope `{items, total, page, page_size, unread}`. Fatia a lista IMAP para pegar mensagens mais novas primeiro. Compat retroativa: se `page_size` for None retorna a lista simples (usado por `spam.py` e `routers/webmail.py` legado).
    - Novo método `MailClient.unread_counts(folders)` que usa IMAP `STATUS folder (MESSAGES UNSEEN)` — leve, sem SELECT — para ler `{folder: {total, unread}}`.
    - Novo endpoint `GET /api/webmail/folder-counts?folders=INBOX,Sent,...` retornando o dict de contagens em uma única conexão IMAP.
-   - Frontend `Webmail.jsx`: novo estado `page` + `pageSize` (persistido em localStorage `voxyra:mail-page-size`, default 20). SWR duplo: uma key para mensagens paginadas (`[mail-messages, folder, search, page, pageSize]`) e outra para contadores (`[mail-folder-counts]`, revalida a cada 90s). Ao trocar pasta ou busca, `page` volta para 1.
+   - Frontend `Webmail.jsx`: novo estado `page` + `pageSize` (persistido em localStorage `voxyra:mail-page-size`, default 20). Ao trocar pasta ou busca, `page` volta para 1.
    - Frontend `Sidebar.jsx`: aceita `folderCounts` prop, renderiza badge azul com o número de não lidas ao lado de cada pasta (testid `folder-unread-<folder>`). Zero-count esconde o badge para não poluir.
-   - Frontend `MessageList.jsx`: novo rodapé fixo (`mail-pagination`) com dropdown `mail-page-size` (10/20/30/50/100), texto "X-Y de Z", e controles `pagination-first/prev/next/last` + botões `pagination-page-N` com janela compacta (`1 … p-1 p p+1 … total`). Total badge no header (`mail-total-count`).
+   - Frontend `MessageList.jsx`: novo rodapé fixo (`mail-pagination`) com dropdown `mail-page-size` (10/20/30/50/100), texto "X-Y de Z", e controles `pagination-first/prev/next/last` + botões `pagination-page-N` com janela compacta.
    - Regressão: `routers/spam.py` (2 chamadas) atualizado para desembrulhar `result["items"]` do novo retorno.
-   - Testes: 5 pytest unit tests em `/app/backend/tests/test_mail_pagination.py` cobrindo envelope, segunda página, out-of-range, unread_counts e flag por mensagem — 100% pass. Testing_agent iteração 12: **100% pass** (backend 6/6, frontend surface visível ok).
+   - Testes: 6 pytest unit tests em `/app/backend/tests/test_mail_pagination.py` — 100% pass.
+
+- ✅ **SSE/IDLE em tempo real + Anexos + Assinatura + Vacation (07/07/2026)**:
+   - **SSE/IDLE** (`services/mail_idle.py` novo): `ImapIdleListener` async usando `aioimaplib` (adicionado ao `requirements.txt`), entra em IMAP `IDLE`, refresca a cada 25 min, converte pushes `EXISTS/EXPUNGE/RECENT` em eventos. Endpoint `GET /api/webmail/events` (SSE) com keepalive de 20s + `X-Accel-Buffering: no`. Hook frontend `useWebmailStream` com **backoff exponencial** (5s→10s→30s→60s→120s) para não afogar o Dovecot em caso de LIMIT. Botão Bell/BellOff na topbar (`mail-notif-toggle`) pede `Notification.requestPermission()`; nova mensagem chama SWR revalidate + toca `notify()` desktop quando a aba não está visível. Bolinha de status (verde=live, âmbar=connecting, vermelho=error).
+   - **Anexos multipart**: novo `POST /api/webmail/send-with-attachments` (multipart form) com limite **25 MB** total. Novo `GET /api/webmail/messages/{uid}/attachment/{index}` retorna bytes com `Content-Disposition: attachment` (RFC 5987 para UTF-8). `MailClient.get_attachment(uid, folder, index)` walk pelo MIME tree contando parts com `Content-Disposition: attachment` OU `filename` presente. `ComposeModal.jsx`: paperclip abre file input múltiplo, chips com nome+tamanho+X para remover, contador "X MB / 25 MB" em vermelho se estourar. `ReadingPane.jsx`: novo componente `AttachmentChip` com ícone por MIME (imagem/planilha/zip/texto) e botão download que baixa o blob e força `<a download>`.
+   - **Assinatura**: reutiliza `user_preferences.signature` (já existia). Nova página `/mail/settings` (aba "Assinatura") com textarea; injeta automaticamente no `ComposeModal` ao abrir (`initial.body + "\n\n-- \n" + signature`) — separador RFC 3676 padrão.
+   - **Vacation/Autoresponder**: proxy para DirectAdmin `CMD_API_EMAIL_VACATION`. Novos endpoints `GET/PUT/DELETE /api/webmail/settings/vacation`, `_resolve_da_context()` resolve DA client + domain + user a partir da conta do usuário. `DirectAdminClient.get_vacation()` novo. Página `/mail/settings` (aba "Resposta automática"): datas de início/fim + textarea + status card verde/cinza. Se domínio não tem servidor DA, mostra card âmbar "Recurso indisponível". Botão Configurações na topbar (`mail-settings-btn`) agora abre `/mail/settings` (antes só admin).
+   - **Fix de conexões IMAP concorrentes (Dovecot LIMIT)**: consolidação em **1 conexão só** — `/messages` aceita novo param `count_folders=INBOX,Sent,...` que roda STATUS por pasta ANTES do SELECT (no mesmo IMAP session). Frontend passa sempre — reduziu de 3+ conexões (list + counts + SSE) para 2 (list-com-counts + SSE). Removido `refreshInterval` do SWR (SSE cuida do push). `errorRetryCount: 1` + `shouldRetryOnError` que ignora LIMIT — sem retry storm. Banner de erro específico para `LIMIT`: mensagem em vermelho pedindo pra fechar outras abas/clientes e sugerindo aumentar `mail_max_userip_connections` no Dovecot.
+   - Testes novos: `/app/backend/tests/test_webmail_p1_features.py` — 12 testes cobrindo auth, contratos multipart, download, vacation, signature roundtrip. `test_mail_pagination.py::test_list_messages_with_count_folders_single_connection` valida o combined-path. **19/19 pass**.
 
 ## Backlog priorizado (P1)
-- Upload / download de anexos reais (multipart) no compose e reading pane.
 - Filtros e regras antispam (persistidas por usuário).
-- Assinatura por usuário (armazenamento e injeção no compose).
-- Vacation/autoresponder wired na UI usando `CMD_API_EMAIL_VACATION`.
-- SSE/IDLE para notificações em tempo real de novas mensagens.
-- Threading de conversas.
+- Threading de conversas (conversation view).
 - Export CSV das listas admin.
 
 ## Backlog (P2)

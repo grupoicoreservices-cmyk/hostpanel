@@ -176,6 +176,10 @@ export default function Webmail() {
     () => error ? (formatApiErrorDetail(error.response?.data?.detail) || error.message) : null,
     [error]
   );
+  const isImapLimitError = useMemo(
+    () => /LIMIT|Maximum number of connections/i.test(errorDetail || ""),
+    [errorDetail]
+  );
   const [errorDismissed, setErrorDismissed] = useState(false);
   useEffect(() => { setErrorDismissed(false); }, [folder, searchDebounced]);
 
@@ -437,16 +441,39 @@ export default function Webmail() {
 
         {/* Banner de erro (IMAP inacessível, senha faltando etc) */}
         {errorDetail && !loading && !errorDismissed && (
-          <div className="px-6 py-2 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-900 flex items-start gap-2 text-xs">
-            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5"/>
-            <div className="flex-1 text-amber-900 dark:text-amber-200">
-              <strong>Não foi possível carregar mensagens do servidor:</strong> {errorDetail}
-              <button onClick={() => mutate()} className="ml-2 underline hover:no-underline">Tentar novamente</button>
+          <div
+            data-testid="mail-error-banner"
+            className={`px-6 py-2 border-b flex items-start gap-2 text-xs ${
+              isImapLimitError
+                ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900 text-red-900 dark:text-red-200"
+                : "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900 text-amber-900 dark:text-amber-200"
+            }`}
+          >
+            <AlertCircle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${isImapLimitError ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}/>
+            <div className="flex-1">
+              {isImapLimitError ? (
+                <>
+                  <strong>Limite de conexões IMAP atingido no servidor.</strong>{" "}
+                  Feche outras abas do webmail ou clientes conectados (Thunderbird, apps de celular) e tente novamente em alguns segundos.
+                  Se o problema persistir, peça ao administrador para aumentar <code className="font-mono px-1 rounded bg-red-100/60 dark:bg-red-900/40">mail_max_userip_connections</code> no Dovecot.
+                </>
+              ) : (
+                <>
+                  <strong>Não foi possível carregar mensagens do servidor:</strong> {errorDetail}
+                </>
+              )}
+              <button
+                data-testid="mail-error-retry"
+                onClick={() => mutate()}
+                className="ml-2 underline hover:no-underline"
+              >
+                Tentar novamente
+              </button>
             </div>
             <button
               data-testid="mail-error-dismiss"
               onClick={() => setErrorDismissed(true)}
-              className="text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 flex-shrink-0"
+              className={`flex-shrink-0 ${isImapLimitError ? "text-red-700 dark:text-red-300 hover:text-red-900 dark:hover:text-red-100" : "text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100"}`}
               title="Dispensar aviso"
             >
               ×

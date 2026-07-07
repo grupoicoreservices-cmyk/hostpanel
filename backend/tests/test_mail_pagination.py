@@ -106,3 +106,19 @@ def test_list_messages_unread_flag_per_message(fake_client):
     r2 = fake_client.list_messages(folder="INBOX", page=2, page_size=10)
     uid4 = next(x for x in r2["items"] if x["uid"] == "4")
     assert uid4["unread"] is True
+
+
+def test_list_messages_with_count_folders_single_connection(fake_client):
+    """Verifica que passar `count_folders` traz folder_counts no MESMO retorno.
+
+    Esse é o caminho principal do webmail em produção — ele evita esbarrar em
+    `mail_max_userip_connections` do Dovecot ao consolidar tudo em 1 conexão.
+    """
+    r = fake_client.list_messages(
+        folder="INBOX", page=1, page_size=10,
+        count_folders=["INBOX", "Sent"],
+    )
+    assert "folder_counts" in r
+    assert r["folder_counts"]["INBOX"]["total"] == 15
+    assert r["folder_counts"]["INBOX"]["unread"] == 4
+    assert "Sent" in r["folder_counts"]
