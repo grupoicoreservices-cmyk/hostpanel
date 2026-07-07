@@ -53,7 +53,7 @@ export default function Landing() {
         <div className="grid md:grid-cols-2 gap-6">
           {/* Webmail card */}
           <Link
-            to="/webmail/login"
+            to="/"
             data-testid="landing-webmail-btn"
             className="group relative rounded-3xl bg-white/[.06] backdrop-blur border border-white/10 p-8 hover:bg-white/[.12] hover:border-blue-300/40 transition-all"
           >

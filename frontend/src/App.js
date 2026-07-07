@@ -40,10 +40,19 @@ function Protected({ children, roles }) {
 function DefaultRedirect() {
   const { user, ready } = useAuth();
   if (!ready) return null;
-  if (!user) return <Landing />;
-  if (user.role === "superadmin" || user.role === "empresa_admin")
-    return <Navigate to="/admin/dashboard" replace />;
-  return <Navigate to="/mail" replace />;
+  // Se já está logado, direciona para o painel apropriado
+  if (user) {
+    if (user.role === "superadmin" || user.role === "empresa_admin")
+      return <Navigate to="/admin/dashboard" replace />;
+    return <Navigate to="/mail" replace />;
+  }
+  // Não autenticado: exibe a tela de login do cliente (webmail) como página raiz
+  return <ClientLogin />;
+}
+
+/** Página /console — vitrine com os dois caminhos (Webmail vs Console admin) */
+function ConsoleChoice() {
+  return <Landing />;
 }
 
 export default function App() {
@@ -54,9 +63,11 @@ export default function App() {
           <Toaster position="top-right" richColors />
           <Routes>
             <Route path="/" element={<DefaultRedirect />} />
+            <Route path="/console" element={<ConsoleChoice />} />
             <Route path="/login" element={<Login />} />
-            <Route path="/webmail" element={<ClientLogin />} />
-            <Route path="/webmail/login" element={<ClientLogin />} />
+            {/* /webmail e /webmail/login continuam funcionando como aliases legados */}
+            <Route path="/webmail" element={<Navigate to="/" replace />} />
+            <Route path="/webmail/login" element={<Navigate to="/" replace />} />
 
             <Route path="/mail" element={<Protected><Webmail /></Protected>} />
             <Route path="/mail/message/:uid" element={<Protected><MessagePage /></Protected>} />
