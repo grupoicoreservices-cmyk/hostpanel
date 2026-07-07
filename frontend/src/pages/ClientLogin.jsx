@@ -1,23 +1,23 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef, forwardRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mail, Lock, ArrowRight } from "lucide-react";
+import { Mail, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/context/AuthContext";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { AUTH } from "@/lib/testIds";
 
-/** Login exclusivo do cliente final — sem menções a admin/SaaS.
- *  Tenta bypass IMAP primeiro (autentica direto contra o servidor do domínio),
- *  cai no login normal se o domínio não tiver bypass ativo.
- *  Ao sair do campo e-mail (blur), busca o branding do domínio no backend
- *  e exibe logo + imagem hero personalizados.
- *  Além disso, ao carregar a página consulta /host-branding para carregar
- *  branding automaticamente quando o cliente acessa via DNS próprio
- *  (ex: mail.empresa-cliente.com.br). */
+/** Login do webmail — visual inspirado no Google Sign-in (2 colunas dentro
+ *  de um card centralizado, cinza claro no fundo, campos Material floating).
+ *
+ *  Fluxo em 2 passos: primeiro pede o e-mail (busca branding do domínio) e
+ *  depois pede a senha. Se o usuário clicar em "voltar" pode trocar de conta.
+ */
 export default function ClientLogin() {
   const { refresh } = useAuth();
   const navigate = useNavigate();
+
+  const [step, setStep] = useState("email"); // 'email' | 'password'
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -25,8 +25,10 @@ export default function ClientLogin() {
   const [branding, setBranding] = useState(null);
   const [brandingLoading, setBrandingLoading] = useState(false);
 
-  // 1) White-label por Host: se o hostname acessado for um domínio hospedado,
-  //    já carrega logo/hero/nome-da-empresa antes mesmo do usuário digitar.
+  const emailInputRef = useRef(null);
+  const passwordInputRef = useRef(null);
+
+  // 1) White-label por Host
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -34,13 +36,22 @@ export default function ClientLogin() {
         const { data } = await api.get("/public/host-branding");
         if (!cancelled && data && data.domain) setBranding(data);
       } catch {
-        /* silencioso: sem host-branding, segue com visual neutro */
+        /* silencioso */
       }
     })();
     return () => { cancelled = true; };
   }, []);
 
-  // 2) Ao sair do campo e-mail, tenta refinar o branding pelo domínio do e-mail
+  // Foco automático nos campos ao mudar de step
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (step === "email") emailInputRef.current?.focus();
+      else passwordInputRef.current?.focus();
+    }, 60);
+    return () => clearTimeout(t);
+  }, [step]);
+
+  // 2) Ao sair do campo e-mail, tenta refinar o branding pelo domínio
   const fetchBranding = useCallback(async (rawEmail) => {
     const e = (rawEmail || "").trim().toLowerCase();
     const at = e.indexOf("@");
@@ -52,11 +63,23 @@ export default function ClientLogin() {
       const res = await api.get(`/public/domains/${encodeURIComponent(domain)}/branding`);
       setBranding(res.data);
     } catch {
-      // Domínio não hospedado: mantém o branding atual (pode ser o host-branding)
+      /* domínio não hospedado */
     } finally {
       setBrandingLoading(false);
     }
   }, []);
+
+  const goToPassword = async (e) => {
+    e.preventDefault();
+    setError("");
+    const emailTrim = email.trim().toLowerCase();
+    if (!emailTrim.includes("@")) {
+      setError("Informe um e-mail válido");
+      return;
+    }
+    await fetchBranding(emailTrim);
+    setStep("password");
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -84,145 +107,243 @@ export default function ClientLogin() {
     }
   };
 
-  const heroUrl = branding?.hero_image_url;
+  const changeAccount = () => {
+    setStep("email");
+    setPassword("");
+    setError("");
+  };
+
   const logoUrl = branding?.logo_url;
   const brandName = branding?.empresa || "Voxyra Webmail";
+  const year = new Date().getFullYear();
 
   return (
-    <div className="min-h-screen flex bg-background" data-testid="client-login-page">
-      {/* Left visual pane */}
-      <div
-        className="hidden lg:flex flex-col justify-between w-1/2 relative overflow-hidden text-white p-12 bg-gradient-to-br from-blue-600 via-blue-700 to-slate-900"
-        data-testid="client-login-hero"
-      >
-        {heroUrl && (
-          <img
-            src={heroUrl}
-            alt="hero"
-            className="absolute inset-0 w-full h-full object-cover"
-            data-testid="client-login-hero-image"
-            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-          />
-        )}
-        {/* Overlay for readability when hero is set */}
-        {heroUrl && <div className="absolute inset-0 bg-gradient-to-br from-blue-900/70 via-blue-800/60 to-slate-900/80"/>}
+    <div
+      className="min-h-screen w-full flex flex-col bg-slate-100 dark:bg-slate-900"
+      data-testid="client-login-page"
+      style={{ fontFamily: '"Google Sans", "Roboto", -apple-system, "Segoe UI", sans-serif' }}
+    >
+      {/* Corpo com card central */}
+      <div className="flex-1 flex items-center justify-center px-4 py-8">
+        <div
+          className="w-full max-w-[900px] rounded-3xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm p-8 sm:p-12"
+          data-testid="client-login-card"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12">
+            {/* Coluna esquerda: título + logo */}
+            <div className="flex flex-col justify-start">
+              <BrandMark logoUrl={logoUrl} />
+              <h1 className="mt-4 text-[2rem] sm:text-[2.25rem] leading-[1.15] font-normal text-slate-900 dark:text-slate-100 tracking-tight">
+                Faça login
+              </h1>
+              <p className="mt-2 text-slate-700 dark:text-slate-300 text-[15px]">
+                Ir para <span className="font-medium">{brandName}</span>
+              </p>
 
-        {!heroUrl && (
-          <div className="absolute inset-0 opacity-20"
-               style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(255,255,255,.3) 0, transparent 50%), radial-gradient(circle at 80% 80%, rgba(255,255,255,.15) 0, transparent 50%)" }}/>
-        )}
-
-        <div className="relative z-10 flex items-center gap-3">
-          <div className="h-11 w-11 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center overflow-hidden">
-            {logoUrl ? (
-              <img
-                src={logoUrl}
-                alt="logo"
-                className="h-full w-full object-contain"
-                data-testid="client-login-logo-hero"
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-              />
-            ) : (
-              <Mail className="w-6 h-6"/>
-            )}
-          </div>
-          <div>
-            <div className="font-display text-2xl font-bold tracking-tight" data-testid="client-login-brand-name">
-              {brandName}
+              {/* Chip da conta quando está no passo da senha */}
+              {step === "password" && (
+                <button
+                  type="button"
+                  onClick={changeAccount}
+                  data-testid="client-login-change-account"
+                  className="mt-6 inline-flex items-center gap-2 self-start px-3 py-1.5 rounded-full border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-sm text-slate-700 dark:text-slate-200 transition-colors"
+                >
+                  <span className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-700 dark:text-blue-300 text-[10px] font-bold uppercase">
+                    {(email[0] || "?").toUpperCase()}
+                  </span>
+                  <span className="truncate max-w-[200px]">{email}</span>
+                  <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+                </button>
+              )}
             </div>
-            <div className="text-xs text-blue-100/80">Sua caixa postal profissional</div>
+
+            {/* Coluna direita: form */}
+            <div className="flex flex-col justify-between">
+              {step === "email" ? (
+                <form onSubmit={goToPassword} className="flex flex-col gap-4">
+                  <FloatingInput
+                    ref={emailInputRef}
+                    id="email"
+                    testid={AUTH.loginEmail}
+                    label="E-mail"
+                    type="email"
+                    value={email}
+                    onChange={(v) => { setEmail(v); if (error) setError(""); }}
+                    onBlur={() => fetchBranding(email)}
+                    autoComplete="username"
+                    trailing={brandingLoading ? "…" : null}
+                    hasError={!!error}
+                  />
+                  {error && (
+                    <div
+                      data-testid="client-login-email-error"
+                      className="text-[13px] text-red-600 dark:text-red-400 -mt-2"
+                    >
+                      {error}
+                    </div>
+                  )}
+                  <a
+                    href="#"
+                    onClick={(e) => { e.preventDefault(); toast.info("Contate o administrador do seu domínio para recuperar o e-mail."); }}
+                    className="text-[13px] font-medium text-blue-600 dark:text-blue-400 hover:underline w-fit"
+                    data-testid="client-login-forgot-email"
+                  >
+                    Esqueceu o e-mail?
+                  </a>
+
+                  <div className="mt-4 text-[13px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                    Não está no seu computador? Use uma janela anônima para fazer login com privacidade.
+                  </div>
+
+                  <div className="mt-8 flex items-center justify-end gap-3">
+                    <button
+                      type="submit"
+                      data-testid={AUTH.loginSubmit}
+                      className="inline-flex items-center justify-center px-6 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-[14px] font-medium shadow-sm active:scale-[.98] transition-all"
+                    >
+                      Avançar
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <form onSubmit={submit} className="flex flex-col gap-4">
+                  {/* input escondido de e-mail para autofill dos password managers */}
+                  <input
+                    type="email" value={email} readOnly hidden
+                    autoComplete="username"
+                  />
+                  <FloatingInput
+                    ref={passwordInputRef}
+                    id="password"
+                    testid={AUTH.loginPassword}
+                    label="Digite sua senha"
+                    type="password"
+                    value={password}
+                    onChange={(v) => { setPassword(v); if (error) setError(""); }}
+                    autoComplete="current-password"
+                    hasError={!!error}
+                  />
+                  {error && (
+                    <div
+                      data-testid="client-login-password-error"
+                      className="text-[13px] text-red-600 dark:text-red-400 -mt-2"
+                    >
+                      {error}
+                    </div>
+                  )}
+                  <a
+                    href="#"
+                    onClick={(e) => { e.preventDefault(); toast.info("A recuperação de senha deve ser feita pelo administrador do seu domínio."); }}
+                    className="text-[13px] font-medium text-blue-600 dark:text-blue-400 hover:underline w-fit"
+                    data-testid="client-login-forgot-password"
+                  >
+                    Esqueceu a senha?
+                  </a>
+
+                  <div className="mt-8 flex items-center justify-end gap-3">
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      data-testid={AUTH.loginSubmit}
+                      className="inline-flex items-center justify-center px-6 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-[14px] font-medium shadow-sm active:scale-[.98] transition-all min-w-[100px]"
+                    >
+                      {loading ? "Entrando…" : "Entrar"}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
           </div>
-        </div>
-
-        <div className="relative z-10 space-y-6">
-          <h1 className="font-display text-4xl xl:text-5xl font-bold tracking-tight leading-[1.05]">
-            E-mail rápido,<br/>
-            <span className="text-blue-200">seguro e</span><br/>
-            sempre online.
-          </h1>
-          <p className="text-blue-100/80 max-w-md">
-            Toda a caixa postal do seu domínio na palma da mão — desktop e mobile.
-          </p>
-        </div>
-
-        <div className="relative z-10 text-xs text-blue-100/60">
-          © {new Date().getFullYear()} {brandName}
         </div>
       </div>
 
-      {/* Right form pane */}
-      <div className="flex-1 flex items-center justify-center p-6 sm:p-12">
-        <div className="w-full max-w-md">
-          <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="h-10 w-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center overflow-hidden">
-              {logoUrl ? (
-                <img src={logoUrl} alt="logo" className="h-full w-full object-contain" data-testid="client-login-logo-mobile"
-                     onError={(e) => { e.currentTarget.style.display = 'none'; }}/>
-              ) : (
-                <Mail className="w-5 h-5"/>
-              )}
-            </div>
-            <div className="font-display font-bold text-xl">{brandName}</div>
-          </div>
-
-          <h2 className="font-display text-3xl font-bold tracking-tight">Entrar no webmail</h2>
-          <p className="text-muted-foreground mt-2 text-sm">
-            Use seu e-mail e senha da caixa postal.
-          </p>
-
-          <form onSubmit={submit} className="mt-8 space-y-4">
-            <label className="block">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">E-mail</span>
-              <div className="mt-1 relative">
-                <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"/>
-                <input
-                  data-testid={AUTH.loginEmail}
-                  type="email" required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onBlur={(e) => fetchBranding(e.target.value)}
-                  placeholder="voce@empresa.com.br"
-                  className="w-full pl-10 pr-3 py-3 rounded-xl border border-border bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
-                />
-                {brandingLoading && (
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-widest text-muted-foreground">
-                    …
-                  </span>
-                )}
-              </div>
-            </label>
-
-            <label className="block">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Senha</span>
-              <div className="mt-1 relative">
-                <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"/>
-                <input
-                  data-testid={AUTH.loginPassword}
-                  type="password" required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-10 pr-3 py-3 rounded-xl border border-border bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
-                />
-              </div>
-            </label>
-
-            {error && (
-              <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
-                {error}
-              </div>
-            )}
-
-            <button
-              data-testid={AUTH.loginSubmit}
-              type="submit" disabled={loading}
-              className="w-full inline-flex items-center justify-center gap-2 bg-primary text-primary-foreground rounded-xl py-3 font-semibold shadow-sm hover:bg-blue-700 active:scale-[.98] transition-all disabled:opacity-60"
-            >
-              {loading ? "Entrando…" : (<>Entrar no webmail <ArrowRight className="w-4 h-4"/></>)}
-            </button>
-          </form>
+      {/* Rodapé estilo Google */}
+      <footer className="px-6 pb-6 pt-2 flex flex-wrap items-center justify-between text-[13px] text-slate-600 dark:text-slate-400 max-w-[900px] mx-auto w-full">
+        <div className="inline-flex items-center gap-2 hover:text-slate-800 dark:hover:text-slate-200 cursor-default">
+          Português (Brasil)
         </div>
+        <div className="flex items-center gap-6">
+          <a href="#" onClick={(e) => e.preventDefault()} className="hover:text-slate-800 dark:hover:text-slate-200">Ajuda</a>
+          <a href="#" onClick={(e) => e.preventDefault()} className="hover:text-slate-800 dark:hover:text-slate-200">Privacidade</a>
+          <a href="#" onClick={(e) => e.preventDefault()} className="hover:text-slate-800 dark:hover:text-slate-200">Termos</a>
+        </div>
+      </footer>
+
+      {/* Marca discreta para não confundir com Google */}
+      <div className="pb-4 text-center text-[11px] text-slate-500 dark:text-slate-500">
+        © {year} {brandName}
       </div>
     </div>
   );
 }
+
+function BrandMark({ logoUrl }) {
+  if (logoUrl) {
+    return (
+      <img
+        src={logoUrl}
+        alt="logo"
+        className="h-10 w-auto object-contain"
+        data-testid="client-login-logo"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+    );
+  }
+  return (
+    <div
+      className="w-11 h-11 rounded-full flex items-center justify-center"
+      style={{
+        background: "conic-gradient(from 210deg, #4285F4 0deg, #34A853 90deg, #FBBC05 180deg, #EA4335 270deg, #4285F4 360deg)",
+      }}
+      data-testid="client-login-logo-default"
+    >
+      <div className="w-9 h-9 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center">
+        <Mail className="w-4 h-4 text-blue-600" strokeWidth={2.5} />
+      </div>
+    </div>
+  );
+}
+
+/* -------- Floating-label input (Material-ish) -------- */
+const FloatingInput = forwardRef(function FloatingInput(
+  { id, testid, label, type = "text", value, onChange, onBlur, autoComplete, trailing, hasError },
+  ref
+) {
+  const [focused, setFocused] = useState(false);
+  const raised = focused || (value && value.length > 0);
+  const borderCls = hasError
+    ? "border-red-500 dark:border-red-500"
+    : (focused ? "border-blue-600 dark:border-blue-400" : "border-slate-400 dark:border-slate-500");
+  return (
+    <div className="relative">
+      <input
+        ref={ref}
+        id={id}
+        data-testid={testid}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={(e) => { setFocused(false); onBlur?.(e); }}
+        autoComplete={autoComplete}
+        required
+        className={`peer w-full h-14 px-4 rounded-lg bg-transparent border-[1.5px] ${borderCls} text-slate-900 dark:text-slate-100 text-[16px] focus:outline-none transition-colors`}
+      />
+      <label
+        htmlFor={id}
+        className={`absolute left-3 px-1 bg-white dark:bg-slate-800 pointer-events-none transition-all text-[15px] ${
+          raised
+            ? `top-0 -translate-y-1/2 text-[12px] ${hasError ? "text-red-600 dark:text-red-400" : focused ? "text-blue-600 dark:text-blue-400" : "text-slate-500 dark:text-slate-400"}`
+            : "top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400"
+        }`}
+      >
+        {label}
+      </label>
+      {trailing && (
+        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[11px] uppercase tracking-widest text-slate-500 dark:text-slate-400">
+          {trailing}
+        </span>
+      )}
+    </div>
+  );
+});
