@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, Sun, Moon, LayoutPanelLeft, LayoutPanelTop, HelpCircle, Settings, ArrowLeft } from "lucide-react";
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import useSWR from "swr";
 
 import Sidebar from "@/components/mail/Sidebar";
 import StatsBar from "@/components/mail/StatsBar";
@@ -21,7 +23,7 @@ const DEMO_MESSAGES = [
     subject: "Alerta de quota do domínio",
     preview: "A conta financeiro@grupoicore.com.br atingiu 82% da capacidade contratada.",
     date: new Date().toISOString(), unread: true, starred: true, folder: "INBOX",
-    body_html: `<p>Olá, administrador.</p><p>A mailbox <strong>financeiro@grupoicore.com.br</strong> atingiu 82% da capacidade contratada. Recomendamos revisar mensagens antigas, anexos grandes ou ampliar o plano de armazenamento.</p><p><a href="#">Ação recomendada — Abrir painel DirectAdmin</a></p><p>Este aviso faz parte do serviço Voxyra Mail.</p>`,
+    body_html: `<p>Olá, administrador.</p><p>A mailbox <strong>financeiro@grupoicore.com.br</strong> atingiu 82% da capacidade contratada.</p>`,
     to: ["admin@grupoicore.com.br"] },
   { uid: "d2", from_name: "Cliente Bellanapoli", from_addr: "contato@bellanapoli.com.br",
     subject: "Falha de entrega", preview: "Mensagem retornou com erro 550…",
@@ -31,16 +33,21 @@ const DEMO_MESSAGES = [
     subject: "Resumo diário", preview: "738 mensagens bloqueadas, 12 quarentenadas.",
     date: new Date(Date.now()-86400e3).toISOString(), folder: "INBOX",
     body_text: "738 mensagens bloqueadas, 12 quarentenadas nas últimas 24 horas." },
-  { uid: "d4", from_name: "Comercial", from_addr: "vendas@grupoicore.com.br",
-    subject: "Proposta de hospedagem", preview: "Segue plano para revisão.",
-    date: new Date(Date.now()-3*86400e3).toISOString(), folder: "INBOX",
-    body_text: "Segue plano para revisão do cliente ACME." },
-  { uid: "d5", from_name: "Suporte Voxyra", from_addr: "suporte@voxyra.net.br",
-    subject: "Ticket #4821 atualizado", preview: "DNS, SPF e DKIM validados.",
-    date: new Date(Date.now()-5*86400e3).toISOString(), folder: "INBOX",
-    body_text: "DNS, SPF e DKIM validados com sucesso." },
 ];
 
+/** Fetcher SWR: escolhe o endpoint certo por pasta. */
+const messagesFetcher = async ([folder, search]) => {
+  if (folder === "Junk" || folder === "Spam") {
+    const { data } = await api.get("/spam/messages", {
+      params: { limit: 100, search: search || undefined },
+    });
+    return data.messages || [];
+  }
+  const { data } = await api.get("/webmail/messages", {
+    params: { folder, limit: 50, search: search || undefined },
+  });
+  return data;
+};
 
 export default function Webmail() {
   const { user } = useAuth();
@@ -48,67 +55,73 @@ export default function Webmail() {
   const navigate = useNavigate();
 
   const [folder, setFolder] = useState("INBOX");
-  const [tab, setTab] = useState("principal");
-  const [messages, setMessages] = useState([]);
-  const [demoMode, setDemoMode] = useState(false);
   const [selected, setSelected] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [searchDebounced, setSearchDebounced] = useState("");
   const [composing, setComposing] = useState(false);
   const [composeInitial, setComposeInitial] = useState({});
   const [stats, setStats] = useState({});
 
   const isAdmin = user?.role === "superadmin" || user?.role === "empresa_admin";
+  const isSpamFolder = folder === "Junk" || folder === "Spam";
 
-  const loadMessages = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Para pasta Spam/Junk, usa endpoint dedicado que auto-descobre a pasta correta
-      if (folder === "Junk" || folder === "Spam") {
-        const { data } = await api.get("/spam/messages", {
-          params: { limit: 100, search: search || undefined },
-        });
-        setMessages(data.messages || []);
-        setDemoMode(false);
-      } else {
-        const { data } = await api.get("/webmail/messages", {
-          params: { folder, limit: 50, search: search || undefined },
-        });
-        setMessages(data);
-        setDemoMode(false);
-      }
-    } catch {
-      // Fallback to demo data when IMAP not yet configured
-      setMessages(DEMO_MESSAGES.filter((m) => folder === "INBOX" || m.folder === folder));
-      setDemoMode(true);
-    } finally {
-      setLoading(false);
+  // Debounce da busca (evita re-fetch a cada tecla)
+  useEffect(() => {
+    const t = setTimeout(() => setSearchDebounced(search), 400);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // SWR cache: mantém dados por pasta+busca; revalida em focus e a cada 60s
+  const swrKey = user ? ["mail-messages", folder, searchDebounced] : null;
+  const { data: rawMessages, isLoading, isValidating, mutate, error } = useSWR(
+    swrKey,
+    ([, f, s]) => messagesFetcher([f, s]),
+    {
+      revalidateOnFocus: true,
+      revalidateIfStale: true,
+      dedupingInterval: 20_000,
+      refreshInterval: 60_000,
+      keepPreviousData: true,
     }
-  }, [folder, search]);
+  );
 
-  const loadStats = useCallback(async () => {
-    try {
-      const { data } = await api.get("/dashboard/stats");
-      setStats(data);
-    } catch {}
-  }, []);
+  const demoMode = !!error;
+  const messages = useMemo(() => {
+    if (error) return DEMO_MESSAGES.filter((m) => folder === "INBOX" || m.folder === folder);
+    return rawMessages || [];
+  }, [rawMessages, error, folder]);
 
-  useEffect(() => { loadMessages(); }, [loadMessages]);
-  useEffect(() => { if (isAdmin) loadStats(); }, [isAdmin, loadStats]);
+  // Stats admin
+  useEffect(() => {
+    if (!isAdmin) return;
+    (async () => {
+      try {
+        const { data } = await api.get("/dashboard/stats");
+        setStats(data);
+      } catch { /* silencioso */ }
+    })();
+  }, [isAdmin]);
 
   const openMessage = async (m) => {
-    if (demoMode) {
-      setSelected(m);
-      return;
-    }
+    if (demoMode) { setSelected(m); return; }
+    // Otimista: já mostra o preview enquanto o corpo carrega
+    setSelected({ ...m, _loadingBody: true });
     try {
-      const { data } = await api.get(`/webmail/messages/${m.uid}`, { params: { folder } });
+      const endpoint = isSpamFolder ? `/spam/messages/${m.uid}` : `/webmail/messages/${m.uid}`;
+      const { data } = await api.get(endpoint, { params: { folder } });
       setSelected(data);
-      // mark as read locally
-      setMessages((prev) => prev.map((x) => x.uid === m.uid ? { ...x, unread: false } : x));
-    } catch (e) {
-      setSelected(m);
-    }
+      // marca como lido localmente + revalida cache
+      mutate(
+        (prev) => (prev || []).map((x) => x.uid === m.uid ? { ...x, unread: false } : x),
+        { revalidate: false }
+      );
+    } catch { setSelected(m); }
+  };
+
+  const openInNewTab = () => {
+    if (!selected?.uid) return;
+    const url = `/mail/message/${selected.uid}?folder=${encodeURIComponent(folder)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const doReply = () => {
@@ -130,8 +143,8 @@ export default function Webmail() {
       });
       toast.success("Mensagem arquivada");
       setSelected(null);
-      loadMessages();
-    } catch (e) { toast.error("Não foi possível arquivar"); }
+      mutate();
+    } catch { toast.error("Não foi possível arquivar"); }
   };
 
   const doSpam = async (addBlacklist = false) => {
@@ -144,11 +157,11 @@ export default function Webmail() {
         add_blacklist: addBlacklist,
       });
       toast.success(addBlacklist && data.blacklisted
-        ? `Movido para spam e remetente bloqueado`
+        ? "Movido para spam e remetente bloqueado"
         : "Movido para spam");
       setSelected(null);
-      loadMessages();
-    } catch (e) { toast.error("Não foi possível mover"); }
+      mutate();
+    } catch { toast.error("Não foi possível mover"); }
   };
 
   const doNotSpam = async (addWhitelist = false) => {
@@ -164,8 +177,8 @@ export default function Webmail() {
         ? "Movido para Entrada e remetente adicionado ao whitelist"
         : "Movido para Entrada");
       setSelected(null);
-      loadMessages();
-    } catch (e) { toast.error("Não foi possível marcar como não-spam"); }
+      mutate();
+    } catch { toast.error("Não foi possível marcar como não-spam"); }
   };
 
   const doDelete = async () => {
@@ -175,8 +188,8 @@ export default function Webmail() {
       await api.delete(`/webmail/messages/${selected.uid}`, { params: { folder } });
       toast.success("Mensagem excluída");
       setSelected(null);
-      loadMessages();
-    } catch (e) { toast.error("Não foi possível excluir"); }
+      mutate();
+    } catch { toast.error("Não foi possível excluir"); }
   };
 
   const folderTitle = useMemo(() => ({
@@ -185,6 +198,7 @@ export default function Webmail() {
   })[folder] || folder, [folder]);
 
   const vertical = prefs.view_mode === "vertical";
+  const loading = isLoading || (isValidating && !rawMessages);
 
   return (
     <div className="h-screen w-full flex overflow-hidden bg-background">
@@ -215,7 +229,6 @@ export default function Webmail() {
                 placeholder={isAdmin ? "Pesquisar e-mails, domínios, anexos ou remetentes" : "Pesquisar e-mails, remetentes ou anexos"}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && loadMessages()}
                 className="w-full pl-10 pr-3 py-2.5 rounded-full bg-secondary text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 border border-transparent focus:border-primary/30 transition-all"
               />
             </div>
@@ -261,42 +274,59 @@ export default function Webmail() {
           </div>
         </div>
 
-        {/* Stats bar (apenas admin) */}
         {isAdmin && <StatsBar stats={stats} />}
 
-        {/* Content area */}
-        <div className={`flex-1 flex overflow-hidden ${vertical ? "flex-col" : ""}`}>
-          <div className={vertical ? "h-1/2 flex" : "flex-1 flex"}>
-            <MessageList
-              messages={messages}
-              loading={loading}
-              activeTab={tab}
-              onTabChange={setTab}
-              selectedUid={selected?.uid}
-              onSelect={openMessage}
-              onRefresh={loadMessages}
-              folderTitle={folderTitle}
-              folderSubtitle={demoMode
-                ? "Modo demonstração — configure servidor DirectAdmin para dados reais"
-                : `${user?.email || ""}`}
-            />
-          </div>
+        {/* Content area — painéis redimensionáveis */}
+        <div className="flex-1 overflow-hidden">
+          <PanelGroup
+            direction={vertical ? "vertical" : "horizontal"}
+            autoSaveId={`voxyra-mail-layout-${vertical ? "v" : "h"}`}
+          >
+            <Panel defaultSize={38} minSize={22}>
+              <MessageList
+                messages={messages}
+                loading={loading}
+                selectedUid={selected?.uid}
+                onSelect={openMessage}
+                onRefresh={() => mutate()}
+                folderTitle={folderTitle}
+                folderSubtitle={demoMode
+                  ? "Modo demonstração — configure servidor DirectAdmin para dados reais"
+                  : `${user?.email || ""}`}
+              />
+            </Panel>
 
-          <div className={vertical ? "flex-1 flex border-t border-border" : "flex-1 flex"}>
-            <ReadingPane
-              message={selected}
-              onArchive={doArchive}
-              onSpam={doSpam}
-              onNotSpam={doNotSpam}
-              onDelete={doDelete}
-              onReply={doReply}
-              onReplyQuick={doReply}
-              onClose={() => setSelected(null)}
-              isSpamFolder={folder === "Junk" || folder === "Spam"}
+            <PanelResizeHandle
+              data-testid="mail-resize-handle"
+              className={vertical
+                ? "h-1 bg-border hover:bg-primary/40 transition-colors cursor-row-resize"
+                : "w-1 bg-border hover:bg-primary/40 transition-colors cursor-col-resize"}
             />
-          </div>
 
-          {!vertical && isAdmin && <SaasPanel stats={stats} />}
+            <Panel defaultSize={isAdmin && !vertical ? 42 : 62} minSize={25}>
+              <ReadingPane
+                message={selected}
+                onArchive={doArchive}
+                onSpam={doSpam}
+                onNotSpam={doNotSpam}
+                onDelete={doDelete}
+                onReply={doReply}
+                onReplyQuick={doReply}
+                onClose={() => setSelected(null)}
+                onOpenInNewTab={openInNewTab}
+                isSpamFolder={isSpamFolder}
+              />
+            </Panel>
+
+            {!vertical && isAdmin && (
+              <>
+                <PanelResizeHandle className="w-1 bg-border hover:bg-primary/40 transition-colors cursor-col-resize" />
+                <Panel defaultSize={20} minSize={12}>
+                  <SaasPanel stats={stats} />
+                </Panel>
+              </>
+            )}
+          </PanelGroup>
         </div>
       </div>
 
@@ -304,7 +334,7 @@ export default function Webmail() {
         open={composing}
         initial={composeInitial}
         onClose={() => setComposing(false)}
-        onSent={loadMessages}
+        onSent={() => mutate()}
       />
     </div>
   );

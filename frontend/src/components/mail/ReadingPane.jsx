@@ -1,4 +1,4 @@
-import { Archive, ShieldAlert, ShieldCheck, Reply, MoreHorizontal, Trash2, Forward, MailOpen, Ban } from "lucide-react";
+import { Archive, ShieldAlert, ShieldCheck, Reply, MoreHorizontal, Trash2, Forward, MailOpen, Ban, ExternalLink } from "lucide-react";
 import DOMPurify from "dompurify";
 import { MAIL } from "@/lib/testIds";
 
@@ -17,7 +17,7 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   }
 });
 
-export default function ReadingPane({ message, onArchive, onSpam, onDelete, onReply, onClose, onReplyQuick, onNotSpam, onBlockSender, isSpamFolder }) {
+export default function ReadingPane({ message, onArchive, onSpam, onDelete, onReply, onClose, onReplyQuick, onNotSpam, onBlockSender, isSpamFolder, onOpenInNewTab, hideOpenNewTab }) {
   if (!message) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background/40 dark:bg-slate-950/40">
@@ -103,6 +103,16 @@ export default function ReadingPane({ message, onArchive, onSpam, onDelete, onRe
         >
           <MoreHorizontal className="w-4 h-4" />
         </button>
+        {!hideOpenNewTab && onOpenInNewTab && (
+          <button
+            data-testid="reading-open-new-tab-btn"
+            onClick={onOpenInNewTab}
+            className="p-2 rounded-lg border border-border hover:bg-muted transition-colors"
+            title="Abrir em nova aba"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* Content */}
