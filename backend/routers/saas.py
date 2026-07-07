@@ -340,6 +340,8 @@ class DomainUpdate(BaseModel):
     smtp_port: Optional[int] = None
     smtp_tls: Optional[bool] = None
     webmail_url: Optional[str] = None
+    logo_url: Optional[str] = None
+    hero_image_url: Optional[str] = None
     allow_bypass_login: Optional[bool] = None
 
 

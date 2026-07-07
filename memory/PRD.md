@@ -21,6 +21,7 @@ Construir um Webmail Host SaaS multiempresa/multidomínio integrado a servidores
 - ✅ Backend: `auth`, `crypto_utils`, `models`, `database`, `services/directadmin.py`, `services/mail.py`, `routers/saas.py`, `routers/webmail.py`, `server.py`, seed superadmin, brute force, indexes.
 - ✅ Frontend: Login, Webmail (com modo demo quando IMAP não configurado), Admin (Dashboard, Empresas, Servers, Domains, Accounts, Users, Logs), AdminLayout, contexts (Auth, Prefs), tema/view toggles, compose modal.
 - ✅ .env.example para backend e frontend, README de deploy, .gitignore para GitHub.
+- ✅ **Branding customizado por domínio no webmail login (07/07/2026)**: campos `logo_url` e `hero_image_url` no cadastro de domínio (`/app/frontend/src/pages/admin/Domains.jsx`); endpoint público `GET /api/public/domains/{domain_name}/branding` (`/app/backend/routers/public.py`); `ClientLogin.jsx` faz fetch no blur do e-mail e troca logo + imagem hero + nome da empresa dinamicamente. Testado ponta-a-ponta com screenshot.
 
 ## Backlog priorizado (P1)
 - Upload / download de anexos reais (multipart) no compose e reading pane.

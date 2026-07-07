@@ -15,6 +15,8 @@ const EMPTY = {
   smtp_port: 587,
   smtp_tls: true,
   webmail_url: "",
+  logo_url: "",
+  hero_image_url: "",
   allow_bypass_login: false,
 };
 
@@ -89,6 +91,8 @@ export default function AdminDomains() {
           imap_host: imap_host || null, imap_port: Number(imap_port), imap_ssl,
           smtp_host: smtp_host || null, smtp_port: Number(smtp_port), smtp_tls,
           webmail_url: webmail_url || null, allow_bypass_login,
+          logo_url: form.logo_url || null,
+          hero_image_url: form.hero_image_url || null,
           directadmin_server_id: directadmin_server_id || null,
         });
         toast.success("Domínio atualizado");
@@ -415,6 +419,52 @@ export default function AdminDomains() {
                     </div>
                   </div>
                 </label>
+              </FormSection>
+
+              {/* SEÇÃO 5 - BRANDING */}
+              <FormSection title="Branding (opcional)" icon={ExternalLink} accent="emerald">
+                <div className="grid md:grid-cols-2 gap-3">
+                  <Field label="Logo (URL)">
+                    <input
+                      data-testid="domain-logo-url"
+                      value={form.logo_url}
+                      onChange={e => setForm({ ...form, logo_url: e.target.value })}
+                      placeholder="https://.../logo.png"
+                      className="input font-mono text-xs"
+                    />
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Aparece no topo do webmail e ao lado do título do login.
+                    </p>
+                  </Field>
+                  <Field label="Imagem hero (URL)">
+                    <input
+                      data-testid="domain-hero-url"
+                      value={form.hero_image_url}
+                      onChange={e => setForm({ ...form, hero_image_url: e.target.value })}
+                      placeholder="https://.../hero.jpg"
+                      className="input font-mono text-xs"
+                    />
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Preenche o painel esquerdo da tela de login (substitui o gradient).
+                    </p>
+                  </Field>
+                </div>
+                {(form.logo_url || form.hero_image_url) && (
+                  <div className="flex gap-3 mt-2">
+                    {form.logo_url && (
+                      <div className="p-2 rounded-lg border border-border bg-muted/40">
+                        <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Preview logo</div>
+                        <img src={form.logo_url} alt="logo" className="h-10 object-contain" onError={(e) => e.currentTarget.style.display='none'}/>
+                      </div>
+                    )}
+                    {form.hero_image_url && (
+                      <div className="p-2 rounded-lg border border-border bg-muted/40 flex-1">
+                        <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Preview hero</div>
+                        <img src={form.hero_image_url} alt="hero" className="h-16 w-full object-cover rounded" onError={(e) => e.currentTarget.style.display='none'}/>
+                      </div>
+                    )}
+                  </div>
+                )}
               </FormSection>
             </div>
 
