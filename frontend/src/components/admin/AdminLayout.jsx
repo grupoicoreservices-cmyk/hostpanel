@@ -5,14 +5,14 @@ import { usePrefs } from "@/context/PrefsContext";
 import { ADMIN, AUTH, MAIL } from "@/lib/testIds";
 
 const NAV = [
-  { to: "/admin/dashboard",   label: "Dashboard",   icon: LayoutDashboard, id: "dashboard" },
-  { to: "/admin/empresas",    label: "Empresas",    icon: Building2,       id: "empresas", superOnly: true },
-  { to: "/admin/servidores",  label: "Servidores DA", icon: Server,        id: "servidores", superOnly: true },
-  { to: "/admin/dominios",    label: "Domínios",    icon: Globe,           id: "dominios" },
-  { to: "/admin/contas",      label: "Contas de e-mail", icon: Users2,     id: "contas" },
-  { to: "/admin/usuarios",    label: "Usuários",    icon: UserCircle2,     id: "usuarios" },
-  { to: "/admin/monitoramento", label: "Monitoramento", icon: Activity,    id: "monitoramento" },
-  { to: "/admin/logs",        label: "Logs",        icon: ScrollText,      id: "logs" },
+  { to: "/admin/dashboard",   label: "Dashboard",     icon: LayoutDashboard, id: "dashboard",     color: "text-blue-500" },
+  { to: "/admin/empresas",    label: "Empresas",      icon: Building2,       id: "empresas",      color: "text-indigo-500",  superOnly: true },
+  { to: "/admin/servidores",  label: "Servidores DA", icon: Server,          id: "servidores",    color: "text-emerald-500", superOnly: true },
+  { to: "/admin/dominios",    label: "Domínios",      icon: Globe,           id: "dominios",      color: "text-sky-500" },
+  { to: "/admin/contas",      label: "Contas de e-mail", icon: Users2,       id: "contas",        color: "text-amber-500" },
+  { to: "/admin/usuarios",    label: "Usuários",      icon: UserCircle2,     id: "usuarios",      color: "text-rose-500" },
+  { to: "/admin/monitoramento", label: "Monitoramento", icon: Activity,      id: "monitoramento", color: "text-lime-500" },
+  { to: "/admin/logs",        label: "Logs",          icon: ScrollText,      id: "logs",          color: "text-orange-500" },
 ];
 
 export default function AdminLayout() {
@@ -41,12 +41,16 @@ export default function AdminLayout() {
                 key={n.to}
                 to={n.to}
                 data-testid={`${ADMIN.navPrefix}${n.id}`}
-                className={({ isActive }) => `w-full flex items-center gap-3 px-4 py-2.5 rounded-r-full text-sm transition-colors ${
+                className={({ isActive }) => `group w-full flex items-center gap-3 px-4 py-2.5 rounded-r-full text-sm transition-colors ${
                   isActive ? "bg-primary/12 text-primary font-semibold" : "text-foreground/80 hover:bg-blue-100/60 dark:hover:bg-slate-800"
                 }`}
               >
-                <Icon className="w-4 h-4" />
-                <span>{n.label}</span>
+                {({ isActive }) => (
+                  <>
+                    <Icon className={`w-4 h-4 transition-colors ${isActive ? "text-primary" : `${n.color} group-hover:scale-110`}`} />
+                    <span>{n.label}</span>
+                  </>
+                )}
               </NavLink>
             );
           })}

@@ -4,14 +4,14 @@ import { MAIL, AUTH } from "@/lib/testIds";
 import { useAuth } from "@/context/AuthContext";
 
 const FOLDERS = [
-  { id: "INBOX",    label: "Entrada",         icon: Inbox,     badge: 238 },
-  { id: "Starred",  label: "Favoritos",       icon: Star },
-  { id: "Snoozed",  label: "Adiados",         icon: Clock },
-  { id: "Sent",     label: "Enviados",        icon: Send },
-  { id: "Drafts",   label: "Rascunhos",       icon: FileEdit, badge: 6 },
-  { id: "Junk",     label: "Antispam Center", icon: ShieldAlert },
-  { id: "Trash",    label: "Lixeira",         icon: Trash2 },
-  { id: "Archive",  label: "Arquivo",         icon: Archive },
+  { id: "INBOX",    label: "Entrada",         icon: Inbox,       color: "text-blue-500",    badge: 238 },
+  { id: "Starred",  label: "Favoritos",       icon: Star,        color: "text-amber-500" },
+  { id: "Snoozed",  label: "Adiados",         icon: Clock,       color: "text-purple-500" },
+  { id: "Sent",     label: "Enviados",        icon: Send,        color: "text-sky-500" },
+  { id: "Drafts",   label: "Rascunhos",       icon: FileEdit,    color: "text-orange-500",  badge: 6 },
+  { id: "Junk",     label: "Antispam Center", icon: ShieldAlert, color: "text-red-500" },
+  { id: "Trash",    label: "Lixeira",         icon: Trash2,      color: "text-slate-500" },
+  { id: "Archive",  label: "Arquivo",         icon: Archive,     color: "text-emerald-500" },
 ];
 
 export default function Sidebar({ activeFolder, onFolderChange, onCompose, empresas = [] }) {
@@ -60,7 +60,7 @@ export default function Sidebar({ activeFolder, onFolderChange, onCompose, empre
                       : "text-foreground/80 hover:bg-blue-100/60 dark:hover:bg-slate-800"
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${active ? "text-primary" : "text-muted-foreground"}`} />
+                  <Icon className={`w-4 h-4 transition-transform ${active ? "text-primary" : `${f.color} group-hover:scale-110`}`} />
                   <span className="flex-1 text-left">{f.label}</span>
                   {f.badge != null && (
                     <span className={`text-[11px] font-semibold ${active ? "text-primary" : "text-muted-foreground"}`}>
