@@ -20,6 +20,6 @@ echo "▶ Restart do backend"
 systemctl restart hostpanel-backend
 
 echo "▶ Reload do Nginx"
-nginx -t && systemctl reload nginx
+nginx -t && (systemctl reload nginx 2>/dev/null || systemctl restart nginx)
 
 echo "✔ Deploy concluído — verifique com: journalctl -u hostpanel-backend -f"

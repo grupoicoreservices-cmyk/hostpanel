@@ -58,7 +58,7 @@ fi
 install -m 644 "$VHOST_SRC" "$VHOST_DST"
 ln -sf "$VHOST_DST" "/etc/nginx/sites-enabled/${DOMAIN}.conf"
 nginx -t
-systemctl reload nginx
+systemctl reload nginx 2>/dev/null || systemctl restart nginx
 
 log "4/4 · Testando HTTPS"
 if curl -sf -o /dev/null "https://$DOMAIN/"; then

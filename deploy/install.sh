@@ -139,7 +139,8 @@ if [[ -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
   install -m 644 "$APP_DIR/deploy/nginx/mailweb-br01.voxyra.net.br.conf" \
                  /etc/nginx/sites-available/$DOMAIN.conf
   ln -sf /etc/nginx/sites-available/$DOMAIN.conf /etc/nginx/sites-enabled/$DOMAIN.conf
-  nginx -t && systemctl reload nginx
+  nginx -t
+  systemctl reload nginx 2>/dev/null || systemctl restart nginx
   ok "Nginx configurado com HTTPS em https://$DOMAIN"
 else
   # Sem certificado — instala vhost HTTP-only para o certbot completar o desafio
@@ -163,7 +164,9 @@ server {
 }
 TMP
   ln -sf /etc/nginx/sites-available/$DOMAIN.conf /etc/nginx/sites-enabled/$DOMAIN.conf
-  nginx -t && systemctl reload nginx
+  nginx -t
+  systemctl reload nginx 2>/dev/null || systemctl restart nginx
+  systemctl enable nginx
   ok "Nginx respondendo em http://$DOMAIN"
   echo
   warn "AGORA execute estes 3 comandos EM ORDEM para ativar o HTTPS:"

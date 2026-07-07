@@ -232,7 +232,10 @@ sudo systemctl status certbot.timer
 |---|---|
 | `502 Bad Gateway` | `sudo systemctl status hostpanel-backend` — veja os logs |
 | Login falha com "network error" | `CORS_ORIGINS` no `.env` do backend precisa bater exatamente com `https://mailweb-br01.voxyra.net.br` |
-| Certbot falha | Confirme DNS A record e que a porta 80 está aberta no firewall externo |
+| Certbot falha (NXDOMAIN) | Registro DNS A ainda propagando — teste `dig +short mailweb-br01.voxyra.net.br` |
+| Certbot falha (timeout) | Porta 80 bloqueada no firewall externo — libere no Proxmox/provedor |
+| Certbot: too many certificates | Rate limit LE (5/semana). Use `--staging` para testar: `sudo certbot --nginx --staging -d ...` |
+| `nginx.service is not active, cannot reload` | Config anterior derrubou o serviço — rode `sudo systemctl start nginx` |
 | Frontend em branco | Refaça `yarn build`; verifique `/opt/hostpanel/frontend/build/index.html` |
 | MongoDB não conecta | `sudo systemctl status mongod`; `MONGO_URL` deve ser `mongodb://127.0.0.1:27017` |
 | Reset da senha do superadmin | Altere `ADMIN_PASSWORD` no `.env` e reinicie o backend — a senha é re-hashada no startup |
