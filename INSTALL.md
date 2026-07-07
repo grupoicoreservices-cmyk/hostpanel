@@ -239,3 +239,4 @@ sudo systemctl status certbot.timer
 | Frontend em branco | Refaça `yarn build`; verifique `/opt/hostpanel/frontend/build/index.html` |
 | MongoDB não conecta | `sudo systemctl status mongod`; `MONGO_URL` deve ser `mongodb://127.0.0.1:27017` |
 | Reset da senha do superadmin | Altere `ADMIN_PASSWORD` no `.env` e reinicie o backend — a senha é re-hashada no startup |
+| Nginx 500 + log `Permission denied` em `/opt/hostpanel/...` | Home do usuário `hostpanel` está em `750`, `www-data` não consegue atravessar. Rode: `sudo chmod 755 /opt/hostpanel` |

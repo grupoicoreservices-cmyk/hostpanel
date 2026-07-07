@@ -76,6 +76,9 @@ log "5/9 · Criando usuário de aplicação e diretórios"
 id -u "$APP_USER" >/dev/null 2>&1 || useradd -r -m -d "$APP_DIR" -s /usr/sbin/nologin "$APP_USER"
 mkdir -p "$APP_DIR" /var/log/hostpanel /var/www/certbot
 chown -R "$APP_USER:$APP_USER" "$APP_DIR" /var/log/hostpanel
+# useradd cria o home com 750 por padrão no Ubuntu 24 — o Nginx (www-data)
+# precisa ao menos poder atravessar o diretório para servir /opt/hostpanel/frontend/build/
+chmod 755 "$APP_DIR"
 
 log "6/9 · Clonando repositório grupoicoreservices-cmyk/hostpanel"
 if [[ -d "$APP_DIR/.git" ]]; then
