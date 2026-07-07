@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { Mail, Lock, ArrowRight, ArrowLeft } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Mail, Lock, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/context/AuthContext";
@@ -81,10 +81,6 @@ export default function ClientLogin() {
       {/* Right form pane */}
       <div className="flex-1 flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-md">
-          <Link to="/" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-6">
-            <ArrowLeft className="w-3 h-3"/> Voltar
-          </Link>
-
           <div className="lg:hidden flex items-center gap-3 mb-8">
             <div className="h-10 w-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center">
               <Mail className="w-5 h-5"/>
@@ -142,10 +138,6 @@ export default function ClientLogin() {
               {loading ? "Entrando…" : (<>Entrar no webmail <ArrowRight className="w-4 h-4"/></>)}
             </button>
           </form>
-
-          <div className="mt-6 text-xs text-muted-foreground text-center">
-            É administrador? <Link to="/login" className="text-primary hover:underline font-semibold">Acessar o console</Link>
-          </div>
         </div>
       </div>
     </div>
