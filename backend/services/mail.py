@@ -359,17 +359,6 @@ class MailClient:
             except Exception:
                 pass
 
-    def mark_flag(self, uid: str, folder: str, flag: str, add: bool = True) -> None:
-        m = self._imap()
-        try:
-            m.select(folder)
-            m.store(uid, "+FLAGS" if add else "-FLAGS", flag)
-        finally:
-            try:
-                m.logout()
-            except Exception:
-                pass
-
     # ---------- SMTP ----------
     def send(self, to: list[str], subject: str, body_html: str | None = None, body_text: str | None = None,
              cc: list[str] | None = None, bcc: list[str] | None = None, attachments: list[dict] | None = None) -> None:

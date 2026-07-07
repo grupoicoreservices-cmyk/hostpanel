@@ -204,7 +204,7 @@ async def flag_message(uid: str, folder: str, flag: str, add: bool = True,
     """Toggle IMAP flags: \\Seen (read), \\Flagged (starred), \\Deleted."""
     client = await _get_mail_client(user)
     try:
-        client.mark_flag(uid, folder, flag, add)
+        client.flag(uid, folder, flag, add)
         return {"ok": True}
     except MailError as e:
         raise HTTPException(502, str(e))
