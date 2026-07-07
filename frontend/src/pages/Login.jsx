@@ -135,11 +135,13 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="mt-8 text-xs text-muted-foreground border border-dashed border-border rounded-lg p-3">
-            <div className="font-semibold text-foreground mb-1">Credenciais de teste (superadmin)</div>
-            E-mail: <code className="font-mono">admin@voxyra.com</code><br/>
-            Senha: <code className="font-mono">Voxyra@2026</code>
-          </div>
+          {process.env.REACT_APP_SHOW_DEV_HINT === "true" && (
+            <div className="mt-8 text-xs text-muted-foreground border border-dashed border-border rounded-lg p-3">
+              <div className="font-semibold text-foreground mb-1">Credenciais de teste (superadmin)</div>
+              E-mail: <code className="font-mono">admin@voxyra.com</code><br/>
+              Senha: <code className="font-mono">Voxyra@2026</code>
+            </div>
+          )}
         </div>
       </div>
     </div>
