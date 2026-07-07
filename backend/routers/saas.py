@@ -1,7 +1,7 @@
 """SaaS admin routers: empresas, servidores DirectAdmin, domínios, contas de e-mail, logs, prefs."""
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 from database import get_db

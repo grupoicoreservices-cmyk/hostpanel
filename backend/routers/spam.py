@@ -298,24 +298,95 @@ async def _account_scope_filter(user: dict) -> dict:
 async def admin_overview(user: dict = Depends(require_admin)):
     """Overview de spam por domínio/conta.
 
-    Como listar em tempo real todas as pastas seria caro, agregamos apenas as
-    contas que já têm senha em cache. Para cada uma abrimos IMAP curto e
-    contamos mensagens na Spam folder — as chamadas IMAP síncronas são
-    despachadas em thread pool (asyncio.to_thread) para não bloquear o loop.
+    Estratégia:
+    1) Para cada domínio no escopo do usuário, verifica se existe uma conta
+       `spam@<domain>` cadastrada com senha armazenada (padrão do DirectAdmin
+       que coleta spam de todo o domínio via catch-all/redirect).
+    2) Se sim, conta as mensagens da INBOX dessa caixa central — 1 conexão
+       IMAP por domínio, muito mais barato que iterar por conta.
+    3) Se não, cai no comportamento legado: itera contas com senha em cache e
+       lê a Junk/Spam folder de cada uma.
     """
     db = get_db()
     q = await _account_scope_filter(user)
-    accounts = [a async for a in db.email_accounts.find({**q, "password_enc": {"$nin": [None, ""]}}, {"_id": 0})]
 
-    # Pré-resolve domínios em batch (uma query só)
-    dom_ids = list({a["dominio_id"] for a in accounts if a.get("dominio_id")})
-    domains_by_id = {d["id"]: d async for d in db.domains.find({"id": {"$in": dom_ids}}, {"_id": 0})}
-    srv_ids = list({d["directadmin_server_id"] for d in domains_by_id.values() if d.get("directadmin_server_id")})
+    # 1) Domínios do escopo
+    domains_q = {} if user["role"] == "superadmin" else {"empresa_id": user.get("empresa_id")}
+    domains = [d async for d in db.domains.find(domains_q, {"_id": 0})]
+    srv_ids = list({d["directadmin_server_id"] for d in domains if d.get("directadmin_server_id")})
     servers_by_id = {s["id"]: s async for s in db.directadmin_servers.find({"id": {"$in": srv_ids}}, {"_id": 0})}
 
-    async def _probe(acc: dict) -> Optional[dict]:
+    # 2) Identifica caixas centrais spam@<domain>
+    central_addresses = [f"spam@{d['nome']}" for d in domains]
+    central_by_email = {
+        a["email"]: a
+        async for a in db.email_accounts.find(
+            {"email": {"$in": central_addresses}, "password_enc": {"$nin": [None, ""]}},
+            {"_id": 0},
+        )
+    }
+
+    async def _probe_central(domain: dict) -> Optional[dict]:
+        acc = central_by_email.get(f"spam@{domain['nome']}")
+        if not acc:
+            return None
+        server = servers_by_id.get(domain.get("directadmin_server_id"))
+        host = _imap_host_from_domain(domain, server)
+        if not host:
+            return None
+        password = decrypt(acc.get("password_enc", "") or "")
+        if not password:
+            return None
+        client = MailClient(
+            host=host, email_addr=acc["email"], password=password,
+            imap_port=int(domain.get("imap_port") or 993),
+            smtp_port=int(domain.get("smtp_port") or 587),
+            use_ssl=bool(domain.get("imap_ssl", True)),
+        )
+        try:
+            count = await asyncio.to_thread(lambda: client.folder_count("INBOX"))
+            return {
+                "account_id": acc["id"],
+                "email": acc["email"],
+                "domain": domain["nome"],
+                "spam_count": count,
+                "folder": "INBOX",
+                "mode": "central",
+                "ok": True,
+            }
+        except MailError:
+            return {
+                "account_id": acc["id"],
+                "email": acc["email"],
+                "domain": domain["nome"],
+                "spam_count": None,
+                "folder": "INBOX",
+                "mode": "central",
+                "error": "IMAP inacessível",
+                "ok": False,
+            }
+        except Exception:
+            return None
+
+    # 3) Probes centrais em paralelo
+    central_results = await asyncio.gather(*[_probe_central(d) for d in domains])
+    domains_with_central = {r["domain"] for r in central_results if r}
+
+    # 4) Contas legadas — só as que NÃO têm central e têm senha em cache
+    accounts = [
+        a async for a in db.email_accounts.find(
+            {**q, "password_enc": {"$nin": [None, ""]}},
+            {"_id": 0},
+        )
+    ]
+    domains_by_id = {d["id"]: d for d in domains}
+
+    async def _probe_legacy(acc: dict) -> Optional[dict]:
         domain = domains_by_id.get(acc.get("dominio_id"))
-        if not domain:
+        if not domain or domain["nome"] in domains_with_central:
+            return None  # ignora quando existe central
+        # não conta a própria caixa central (evita dupla contagem)
+        if acc["email"] == f"spam@{domain['nome']}":
             return None
         server = servers_by_id.get(domain.get("directadmin_server_id")) if domain.get("directadmin_server_id") else None
         host = _imap_host_from_domain(domain, server)
@@ -343,6 +414,7 @@ async def admin_overview(user: dict = Depends(require_admin)):
                 "domain": domain["nome"],
                 "spam_count": probe["count"],
                 "folder": probe["folder"],
+                "mode": "per-user",
                 "ok": True,
             }
         except MailError:
@@ -352,30 +424,37 @@ async def admin_overview(user: dict = Depends(require_admin)):
                 "domain": domain["nome"],
                 "spam_count": None,
                 "folder": None,
+                "mode": "per-user",
                 "error": "IMAP inacessível",
                 "ok": False,
             }
         except Exception:
             return None
 
-    # Executa probes em paralelo (limitado pelo pool de threads padrão)
-    results = await asyncio.gather(*[_probe(a) for a in accounts])
+    legacy_results = await asyncio.gather(*[_probe_legacy(a) for a in accounts])
 
     per_domain: dict[str, dict] = {}
     per_account: list[dict] = []
     total_spam = 0
     reachable = 0
-    for r in results:
+
+    def _consume(r):
+        nonlocal total_spam, reachable
         if not r:
-            continue
+            return
         per_account.append({k: v for k, v in r.items() if k != "ok"})
         if r.get("ok") and r.get("spam_count") is not None:
             reachable += 1
             total_spam += r["spam_count"]
             key = r["domain"]
-            d_agg = per_domain.setdefault(key, {"domain": key, "spam_count": 0, "accounts": 0})
+            d_agg = per_domain.setdefault(key, {"domain": key, "spam_count": 0, "accounts": 0, "mode": r.get("mode")})
             d_agg["spam_count"] += r["spam_count"]
             d_agg["accounts"] += 1
+
+    for r in central_results:
+        _consume(r)
+    for r in legacy_results:
+        _consume(r)
 
     per_account.sort(key=lambda x: (x.get("spam_count") or 0), reverse=True)
     return {
@@ -413,14 +492,24 @@ async def _admin_get_account_client(account_id: str, user: dict) -> tuple[dict, 
     return account, domain, client
 
 
+def _resolve_admin_spam_folder(client: MailClient, account: dict, domain: dict) -> str:
+    """Se a conta é a caixa central `spam@<domain>`, o INBOX ELA MESMA é a
+    "pasta de spam" — todas as mensagens ali já são spam por definição.
+    Para contas normais, usa a heurística `resolve_spam_folder`.
+    """
+    if account["email"] == f"spam@{domain['nome']}":
+        return "INBOX"
+    return client.resolve_spam_folder() or "Junk"
+
+
 @router.get("/admin/accounts/{account_id}")
 async def admin_account_messages(account_id: str, limit: int = 100,
                                   user: dict = Depends(require_admin)):
-    _, _, client = await _admin_get_account_client(account_id, user)
+    account, domain, client = await _admin_get_account_client(account_id, user)
     try:
-        folder = client.resolve_spam_folder() or "Junk"
+        folder = _resolve_admin_spam_folder(client, account, domain)
         result = client.list_messages(folder=folder, limit=limit)
-        return {"folder": folder, "messages": result["items"]}
+        return {"folder": folder, "messages": result["items"], "is_central": folder == "INBOX" and account["email"] == f"spam@{domain['nome']}"}
     except MailError as e:
         raise HTTPException(502, str(e))
 
@@ -431,7 +520,7 @@ async def admin_account_not_spam(account_id: str, payload: UidsPayload,
     db = get_db()
     account, domain, client = await _admin_get_account_client(account_id, user)
     try:
-        src = payload.folder or client.resolve_spam_folder() or "Junk"
+        src = payload.folder or _resolve_admin_spam_folder(client, account, domain)
         senders: list[str] = []
         if payload.add_whitelist:
             for uid in payload.uids:
@@ -441,21 +530,26 @@ async def admin_account_not_spam(account_id: str, payload: UidsPayload,
                         senders.append(msg["from_addr"])
                 except MailError:
                     continue
-        moved = client.bulk_move(payload.uids, src, "INBOX")
+        # Se estamos na caixa central, mover para "INBOX" seria mover no mesmo lugar.
+        # Nesse caso, movemos para uma pasta "Falso-positivo" (criada on demand).
+        dst = "INBOX"
+        if src == "INBOX" and account["email"] == f"spam@{domain['nome']}":
+            dst = "Falso-positivo"
+        moved = client.bulk_move(payload.uids, src, dst)
     except MailError as e:
         raise HTTPException(502, str(e))
     whitelisted = 0
     if payload.add_whitelist and senders:
         whitelisted = await _apply_wl_bl(db, account, domain, senders, "whitelist")
-    return {"moved": moved, "whitelisted": whitelisted}
+    return {"moved": moved, "whitelisted": whitelisted, "moved_to": dst}
 
 
 @router.delete("/admin/accounts/{account_id}/messages")
 async def admin_account_delete(account_id: str, payload: UidsPayload,
                                 user: dict = Depends(require_admin)):
-    _, _, client = await _admin_get_account_client(account_id, user)
+    account, domain, client = await _admin_get_account_client(account_id, user)
     try:
-        folder = payload.folder or client.resolve_spam_folder() or "Junk"
+        folder = payload.folder or _resolve_admin_spam_folder(client, account, domain)
         deleted = client.bulk_delete(payload.uids, folder)
         return {"deleted": deleted, "folder": folder}
     except MailError as e:
