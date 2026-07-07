@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, Sun, Moon, LayoutPanelLeft, LayoutPanelTop, HelpCircle, Settings, ArrowLeft, AlertCircle, Mail } from "lucide-react";
+import { Search, Sun, Moon, LayoutPanelLeft, LayoutPanelTop, HelpCircle, Settings, ArrowLeft, AlertCircle, Mail, Bell, BellOff } from "lucide-react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import useSWR from "swr";
 
@@ -15,6 +15,7 @@ import { api, formatApiErrorDetail } from "@/lib/api";
 import { MAIL, ADMIN } from "@/lib/testIds";
 import { useAuth } from "@/context/AuthContext";
 import { usePrefs } from "@/context/PrefsContext";
+import useWebmailStream from "@/hooks/useWebmailStream";
 import { toast } from "sonner";
 
 
@@ -109,6 +110,51 @@ export default function Webmail() {
     },
     { revalidateOnFocus: true, refreshInterval: 90_000, dedupingInterval: 30_000 }
   );
+
+  // ---- Notificações desktop ----
+  const [notifPerm, setNotifPerm] = useState(() =>
+    typeof Notification !== "undefined" ? Notification.permission : "unsupported");
+
+  const requestNotifPerm = useCallback(async () => {
+    if (typeof Notification === "undefined") return;
+    try {
+      const p = await Notification.requestPermission();
+      setNotifPerm(p);
+      if (p === "granted") toast.success("Notificações ativadas");
+    } catch { /* noop */ }
+  }, []);
+
+  const notify = useCallback((title, body) => {
+    try {
+      if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+      if (document.visibilityState === "visible") return; // não incomoda se a aba está ativa
+      const n = new Notification(title, { body, icon: "/favicon.svg", tag: "voxyra-mail" });
+      setTimeout(() => n.close(), 8000);
+    } catch { /* noop */ }
+  }, []);
+
+  // ---- Stream SSE (IMAP IDLE) ----
+  const backendBase = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "") + "/api";
+  const [streamStatus, setStreamStatus] = useState("connecting"); // connecting|live|error
+  useWebmailStream({
+    baseUrl: backendBase,
+    enabled: !!user,
+    folder: "INBOX", // sempre monitora INBOX para novos e-mails
+    onEvent: (evt) => {
+      if (evt.type === "ready") setStreamStatus("live");
+      else if (evt.type === "error") setStreamStatus("error");
+      else if (evt.type === "new_mail") {
+        setStreamStatus("live");
+        mutateCounts();
+        // Só revalida a listagem se o usuário está na pasta afetada
+        if (folder === (evt.folder || "INBOX")) mutate();
+        notify("Nova mensagem", `Você recebeu uma nova mensagem em ${evt.folder || "INBOX"}.`);
+      } else if (evt.type === "expunge") {
+        mutateCounts();
+        if (folder === (evt.folder || "INBOX")) mutate();
+      }
+    },
+  });
 
   // Marca fim da primeira carga (para o splash sumir)
   useEffect(() => {
@@ -340,6 +386,26 @@ export default function Webmail() {
             </button>
 
             <button
+              data-testid="mail-notif-toggle"
+              onClick={() => {
+                if (notifPerm === "granted") toast.info("Notificações desktop já ativadas");
+                else if (notifPerm === "denied") toast.error("Notificações bloqueadas pelo navegador. Reative nas configurações do site.");
+                else requestNotifPerm();
+              }}
+              className={`relative p-2 rounded-lg hover:bg-muted transition-colors ${notifPerm === "granted" ? "text-primary" : "text-muted-foreground"}`}
+              title={notifPerm === "granted" ? "Notificações desktop ativas" : "Ativar notificações desktop"}
+            >
+              {notifPerm === "granted" ? <Bell className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
+              <span
+                data-testid="mail-stream-status"
+                className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${
+                  streamStatus === "live" ? "bg-emerald-500" : streamStatus === "error" ? "bg-red-500" : "bg-amber-500"
+                }`}
+                title={`Push: ${streamStatus === "live" ? "conectado" : streamStatus === "error" ? "erro" : "conectando"}`}
+              />
+            </button>
+
+            <button
               data-testid={MAIL.supportBtn}
               onClick={() => toast.info("Fale conosco: suporte@voxyra.net.br")}
               className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors"
@@ -349,9 +415,9 @@ export default function Webmail() {
 
             <button
               data-testid={MAIL.settingsBtn}
-              onClick={() => isAdmin ? navigate("/admin/dashboard") : toast.info("Somente administradores")}
+              onClick={() => navigate("/mail/settings")}
               className="p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
-              title="Configurações"
+              title="Configurações do webmail"
             >
               <Settings className="w-4 h-4" />
             </button>

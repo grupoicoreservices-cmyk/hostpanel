@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Archive, ShieldAlert, ShieldCheck, Reply, MoreHorizontal, Trash2, Forward, MailOpen, Ban, ExternalLink, Printer, Code, EyeOff } from "lucide-react";
+import { Archive, ShieldAlert, ShieldCheck, Reply, MoreHorizontal, Trash2, Forward, MailOpen, Ban, ExternalLink, Printer, Code, EyeOff, Download, FileText, Image as ImageIcon, FileArchive, FileSpreadsheet } from "lucide-react";
 import DOMPurify from "dompurify";
 import { MAIL } from "@/lib/testIds";
+import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 // Configuração restritiva para HTML de e-mail: sem scripts, sem event handlers,
 // links abrem em nova aba com noopener.
@@ -213,16 +215,19 @@ Spam-Status: ${message.spam_status || "—"}`}
         </div>
 
         {message.attachments?.length > 0 && (
-          <div className="mt-4">
+          <div className="mt-4" data-testid="reading-attachments">
             <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">
               Anexos ({message.attachments.length})
             </div>
             <div className="flex flex-wrap gap-2">
               {message.attachments.map((a, i) => (
-                <div key={`${a.filename || 'att'}-${a.size || 0}-${i}`} className="px-3 py-2 rounded-lg border border-border bg-card text-xs flex items-center gap-2">
-                  📎 <span className="truncate max-w-[180px]">{a.filename}</span>
-                  <span className="text-muted-foreground">{Math.ceil((a.size || 0) / 1024)} KB</span>
-                </div>
+                <AttachmentChip
+                  key={`${a.filename || 'att'}-${a.size || 0}-${i}`}
+                  attachment={a}
+                  index={a.index ?? i}
+                  uid={message.uid}
+                  folder={message.folder || "INBOX"}
+                />
               ))}
             </div>
           </div>
@@ -259,4 +264,67 @@ function MenuItem({ icon: Icon, label, onClick, testid }) {
 
 function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function iconForMime(mime, filename) {
+  const m = String(mime || "").toLowerCase();
+  const ext = String(filename || "").split(".").pop().toLowerCase();
+  if (m.startsWith("image/") || ["png","jpg","jpeg","gif","webp","svg","bmp"].includes(ext)) return ImageIcon;
+  if (["zip","rar","7z","tar","gz","bz2"].includes(ext) || m.includes("zip") || m.includes("compressed")) return FileArchive;
+  if (["xls","xlsx","csv","ods"].includes(ext) || m.includes("spreadsheet")) return FileSpreadsheet;
+  return FileText;
+}
+
+function formatBytesRP(n) {
+  if (!n && n !== 0) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function AttachmentChip({ attachment, index, uid, folder }) {
+  const [busy, setBusy] = useState(false);
+  const Icon = iconForMime(attachment.content_type, attachment.filename);
+
+  const download = async () => {
+    setBusy(true);
+    try {
+      const res = await api.get(`/webmail/messages/${encodeURIComponent(uid)}/attachment/${index}`, {
+        params: { folder },
+        responseType: "blob",
+      });
+      const blob = new Blob([res.data], { type: attachment.content_type || "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = attachment.filename || "arquivo";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // libera memória em seguida
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail ? String(e.response.data.detail) : "Falha ao baixar anexo");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div
+      data-testid={`attachment-chip-${index}`}
+      className="px-3 py-2 rounded-lg border border-border bg-card text-xs flex items-center gap-2 group hover:border-primary/40 transition-colors"
+    >
+      <Icon className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+      <span className="truncate max-w-[220px]" title={attachment.filename}>{attachment.filename}</span>
+      <span className="text-muted-foreground">{formatBytesRP(attachment.size)}</span>
+      <button
+        data-testid={`attachment-download-${index}`}
+        onClick={download}
+        disabled={busy}
+        className="ml-1 p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-primary transition-colors disabled:opacity-50"
+        title="Baixar"
+      >
+        <Download className={`w-3.5 h-3.5 ${busy ? "animate-pulse" : ""}`} />
+      </button>
+    </div>
+  );
 }

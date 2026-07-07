@@ -10,6 +10,7 @@ import ClientLogin from "@/pages/ClientLogin";
 import Landing from "@/pages/Landing";
 import Webmail from "@/pages/Webmail";
 import MessagePage from "@/pages/MessagePage";
+import MailSettings from "@/pages/MailSettings";
 import AdminLayout from "@/components/admin/AdminLayout";
 import AdminDashboard from "@/pages/admin/Dashboard";
 import AdminEmpresas from "@/pages/admin/Empresas";
@@ -71,6 +72,7 @@ export default function App() {
 
             <Route path="/mail" element={<Protected><Webmail /></Protected>} />
             <Route path="/mail/message/:uid" element={<Protected><MessagePage /></Protected>} />
+            <Route path="/mail/settings" element={<Protected><MailSettings /></Protected>} />
 
             <Route
               path="/admin"

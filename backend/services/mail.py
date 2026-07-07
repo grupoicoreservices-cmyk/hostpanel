@@ -269,6 +269,38 @@ class MailClient:
             except Exception:
                 pass
 
+    def get_attachment(self, uid: str, folder: str, index: int) -> tuple[str, str, bytes]:
+        """Retorna (filename, content_type, bytes) do anexo `index`-ésimo da mensagem `uid`.
+
+        A ordem é a mesma retornada por `get_message()['attachments']` — walk pelo MIME tree,
+        contando apenas partes com Content-Disposition attachment ou filename presente.
+        """
+        m = self._imap()
+        try:
+            m.select(_safe_folder(folder), readonly=True)
+            typ, data = m.fetch(uid.encode() if isinstance(uid, str) else uid, "(RFC822)")
+            if typ != "OK" or not data or not data[0]:
+                raise MailError("Mensagem não encontrada")
+            raw = data[0][1]
+            msg = email.message_from_bytes(raw, policy=policy.default)
+            count = 0
+            if msg.is_multipart():
+                for part in msg.walk():
+                    ctype = part.get_content_type()
+                    disp = part.get("Content-Disposition", "") or ""
+                    filename = part.get_filename()
+                    if "attachment" in disp or (filename and "inline" not in disp):
+                        if count == index:
+                            payload = part.get_payload(decode=True) or b""
+                            return (_decode(filename or "arquivo"), ctype, payload)
+                        count += 1
+            raise MailError("Anexo não encontrado")
+        finally:
+            try:
+                m.logout()
+            except Exception:
+                pass
+
     def get_message(self, uid: str, folder: str = "INBOX") -> dict:
         m = self._imap()
         try:
@@ -281,16 +313,20 @@ class MailClient:
             name, addr = _parse_addr(msg.get("From", ""))
             body_text, body_html = "", ""
             attachments = []
+            att_index = 0
             if msg.is_multipart():
                 for part in msg.walk():
                     ctype = part.get_content_type()
                     disp = part.get("Content-Disposition", "") or ""
-                    if "attachment" in disp:
+                    if "attachment" in disp or (part.get_filename() and "inline" not in disp):
+                        payload = part.get_payload(decode=True) or b""
                         attachments.append({
+                            "index": att_index,
                             "filename": _decode(part.get_filename() or "arquivo"),
                             "content_type": ctype,
-                            "size": len(part.get_payload(decode=True) or b""),
+                            "size": len(payload),
                         })
+                        att_index += 1
                     elif ctype == "text/plain" and "attachment" not in disp:
                         body_text += part.get_content()
                     elif ctype == "text/html" and "attachment" not in disp:

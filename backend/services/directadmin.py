@@ -126,6 +126,32 @@ class DirectAdminClient:
         return None
 
     # ---------- Vacation / Autoresponder ----------
+    def get_vacation(self, domain: str, user: str) -> Optional[dict]:
+        """Retorna configuração de vacation da conta ou None se inativa.
+
+        DirectAdmin `CMD_API_EMAIL_VACATION?domain=X` retorna a lista de usuários
+        com vacation ativo em formato `list[]=user1&list[]=user2` ou `key=value`.
+        Para ler o conteúdo específico, `CMD_API_EMAIL_VACATION?domain=X&user=Y`.
+        """
+        try:
+            data = self._request(
+                "CMD_API_EMAIL_VACATION",
+                {"domain": domain, "user": user},
+            )
+        except DirectAdminError:
+            return None
+        if not data:
+            return None
+        # DirectAdmin costuma devolver dict com keys: text, starttime, endtime
+        if isinstance(data, dict) and (data.get("text") or data.get("reply")):
+            return {
+                "active": True,
+                "text": data.get("text") or data.get("reply") or "",
+                "starttime": data.get("starttime"),
+                "endtime": data.get("endtime"),
+            }
+        return None
+
     def set_vacation(self, domain: str, user: str, reply: str, start: str, end: str) -> dict:
         return self._request(
             "CMD_API_EMAIL_VACATION",

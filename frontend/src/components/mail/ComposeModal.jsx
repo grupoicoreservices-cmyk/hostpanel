@@ -1,11 +1,16 @@
-import { useEffect, useState } from "react";
-import { X, Paperclip, Smile, Type, MoreHorizontal, Minus, Maximize2, Send, Clock, ChevronDown } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { X, Paperclip, Smile, Type, MoreHorizontal, Minus, Maximize2, Send, Clock, ChevronDown, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { MAIL } from "@/lib/testIds";
+import { usePrefs } from "@/context/PrefsContext";
+
+const MAX_TOTAL_BYTES = 25 * 1024 * 1024;
+const SIGNATURE_SEP = "\n\n-- \n";
 
 /** Modal de composição — suporta envio imediato, encaminhamento e agendamento. */
 export default function ComposeModal({ open, onClose, initial = {}, onSent }) {
+  const { prefs } = usePrefs() || { prefs: { signature: "" } };
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState("");
@@ -13,6 +18,8 @@ export default function ComposeModal({ open, onClose, initial = {}, onSent }) {
   const [showCc, setShowCc] = useState(false);
   const [sending, setSending] = useState(false);
   const [minimized, setMinimized] = useState(false);
+  const [attachments, setAttachments] = useState([]);
+  const fileInputRef = useRef(null);
 
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleAt, setScheduleAt] = useState(""); // datetime-local string
@@ -23,14 +30,38 @@ export default function ComposeModal({ open, onClose, initial = {}, onSent }) {
       setTo(initial.to || "");
       setCc(initial.cc || "");
       setSubject(initial.subject || "");
-      setBody(initial.body || "");
+      // Anexa assinatura ao final somente se não existir separador ainda no corpo
+      const baseBody = initial.body || "";
+      const sig = (prefs?.signature || "").trim();
+      const nextBody = sig && !baseBody.includes("\n-- \n") ? `${baseBody}${SIGNATURE_SEP}${sig}` : baseBody;
+      setBody(nextBody);
       setShowCc(!!initial.cc);
       setScheduleOpen(false);
       setScheduleAt(defaultScheduleAt());
+      setAttachments([]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initial.to, initial.subject, initial.body, initial.cc]);
 
   if (!open) return null;
+
+  const totalAttBytes = attachments.reduce((s, f) => s + (f.size || 0), 0);
+  const overLimit = totalAttBytes > MAX_TOTAL_BYTES;
+
+  const addFiles = (fileList) => {
+    if (!fileList || fileList.length === 0) return;
+    const incoming = Array.from(fileList);
+    const nextTotal = totalAttBytes + incoming.reduce((s, f) => s + f.size, 0);
+    if (nextTotal > MAX_TOTAL_BYTES) {
+      toast.error(`Anexos excedem 25 MB (total ficaria em ${(nextTotal / (1024 * 1024)).toFixed(1)} MB)`);
+      return;
+    }
+    setAttachments((prev) => [...prev, ...incoming]);
+  };
+
+  const removeAttachment = (idx) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   const buildPayload = () => ({
     to: to.split(",").map((s) => s.trim()).filter(Boolean),
@@ -41,9 +72,22 @@ export default function ComposeModal({ open, onClose, initial = {}, onSent }) {
 
   const send = async () => {
     if (!to.trim()) { toast.error("Informe o destinatário"); return; }
+    if (overLimit) { toast.error("Remova alguns anexos (limite 25 MB)"); return; }
     setSending(true);
     try {
-      await api.post("/webmail/send", buildPayload());
+      if (attachments.length > 0) {
+        const fd = new FormData();
+        fd.append("to", to);
+        if (cc) fd.append("cc", cc);
+        fd.append("subject", subject || "(sem assunto)");
+        fd.append("body_text", body || "");
+        attachments.forEach((f) => fd.append("attachments", f, f.name));
+        await api.post("/webmail/send-with-attachments", fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      } else {
+        await api.post("/webmail/send", buildPayload());
+      }
       toast.success("Mensagem enviada");
       onSent?.();
       onClose();
@@ -55,6 +99,10 @@ export default function ComposeModal({ open, onClose, initial = {}, onSent }) {
   const schedule = async () => {
     if (!to.trim()) { toast.error("Informe o destinatário"); return; }
     if (!scheduleAt) { toast.error("Escolha data e hora"); return; }
+    if (attachments.length > 0) {
+      toast.error("Anexos ainda não são suportados em envio agendado. Envie agora ou remova os anexos.");
+      return;
+    }
     const when = new Date(scheduleAt);
     if (isNaN(when) || when.getTime() < Date.now() + 30_000) {
       toast.error("Escolha uma data no futuro (mín. 1 min à frente)");
@@ -141,6 +189,46 @@ export default function ComposeModal({ open, onClose, initial = {}, onSent }) {
             className="flex-1 px-4 py-3 text-sm bg-transparent focus:outline-none resize-none voxyra-scroll-visible"
           />
 
+          {attachments.length > 0 && (
+            <div
+              data-testid="compose-attachments-list"
+              className="px-3 pt-2 pb-1 border-t border-border bg-muted/30 flex flex-wrap gap-2"
+            >
+              {attachments.map((f, i) => (
+                <div
+                  key={`${f.name}-${f.size}-${i}`}
+                  data-testid={`compose-attachment-${i}`}
+                  className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-card border border-border text-xs"
+                  title={`${f.name} — ${formatBytes(f.size)}`}
+                >
+                  <FileText className="w-3.5 h-3.5 text-primary flex-shrink-0"/>
+                  <span className="truncate max-w-[160px]">{f.name}</span>
+                  <span className="text-muted-foreground">{formatBytes(f.size)}</span>
+                  <button
+                    data-testid={`compose-attachment-remove-${i}`}
+                    onClick={() => removeAttachment(i)}
+                    className="text-muted-foreground hover:text-destructive"
+                    title="Remover anexo"
+                  >
+                    <X className="w-3.5 h-3.5"/>
+                  </button>
+                </div>
+              ))}
+              <div className={`ml-auto text-[10px] font-semibold uppercase tracking-widest ${overLimit ? "text-destructive" : "text-muted-foreground"}`}>
+                {formatBytes(totalAttBytes)} / 25 MB
+              </div>
+            </div>
+          )}
+
+          <input
+            data-testid="compose-file-input"
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }}
+          />
+
           <div className="p-3 border-t border-border flex items-center gap-2 flex-wrap">
             {/* Split button: Enviar | Agendar */}
             <div className="inline-flex rounded-full overflow-hidden shadow-sm">
@@ -163,7 +251,12 @@ export default function ComposeModal({ open, onClose, initial = {}, onSent }) {
               </button>
             </div>
 
-            <button className="p-2 rounded-lg hover:bg-muted text-muted-foreground" title="Anexar (em breve)">
+            <button
+              data-testid="compose-attach-btn"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 rounded-lg hover:bg-muted text-muted-foreground"
+              title="Anexar arquivos (máx. 25 MB)"
+            >
               <Paperclip className="w-4 h-4"/>
             </button>
             <button className="p-2 rounded-lg hover:bg-muted text-muted-foreground" title="Formatar (em breve)">
@@ -225,6 +318,12 @@ export default function ComposeModal({ open, onClose, initial = {}, onSent }) {
 
 /* ---------- helpers ---------- */
 function pad(n) { return String(n).padStart(2, "0"); }
+function formatBytes(n) {
+  if (!n && n !== 0) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
 function fmtLocal(d) {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
