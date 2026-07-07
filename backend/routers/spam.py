@@ -19,6 +19,7 @@ Endpoints admin (empresa_admin / superadmin):
   DELETE /api/spam/admin/accounts/{id}/messages
 """
 from __future__ import annotations
+import asyncio
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
@@ -56,8 +57,8 @@ class ReportSpamPayload(BaseModel):
 # ============================================================
 # Helpers
 # ============================================================
-async def _resolve_account_and_mail(user: dict) -> tuple[dict, dict, MailClient]:
-    """Devolve (account, domain, MailClient) para o usuário logado."""
+async def _resolve_account(user: dict) -> tuple[dict, dict]:
+    """Devolve (account, domain) — sem tentar abrir IMAP (usado por whitelist/blacklist)."""
     db = get_db()
     account = None
     if user.get("email_account_id"):
@@ -66,16 +67,20 @@ async def _resolve_account_and_mail(user: dict) -> tuple[dict, dict, MailClient]
         account = await db.email_accounts.find_one({"email": user.get("email")})
     if not account:
         raise HTTPException(400, "Conta de e-mail não configurada para este usuário")
+    domain = await db.domains.find_one({"id": account["dominio_id"]})
+    if not domain:
+        raise HTTPException(400, "Domínio não encontrado")
+    return account, domain
 
+
+async def _resolve_account_and_mail(user: dict) -> tuple[dict, dict, MailClient]:
+    """Devolve (account, domain, MailClient) para o usuário logado."""
+    account, domain = await _resolve_account(user)
     password = decrypt(account.get("password_enc", "") or "")
     if not password:
         raise HTTPException(400, "Senha da conta indisponível — faça login pelo webmail para armazenar")
 
-    domain = await db.domains.find_one({"id": account["dominio_id"]})
-    if not domain:
-        raise HTTPException(400, "Domínio não encontrado")
-
-    host = _imap_host_from_domain(domain, await _get_server(db, domain))
+    host = _imap_host_from_domain(domain, await _get_server(get_db(), domain))
     if not host:
         raise HTTPException(400, "Servidor IMAP não localizado")
 
@@ -222,7 +227,7 @@ async def spam_delete(payload: UidsPayload, user: dict = Depends(get_current_use
 @router.post("/whitelist")
 async def spam_whitelist(payload: AddressesPayload, user: dict = Depends(get_current_user)):
     db = get_db()
-    account, domain, _ = await _resolve_account_and_mail(user)
+    account, domain = await _resolve_account(user)
     n = await _apply_wl_bl(db, account, domain, [str(a) for a in payload.addresses], "whitelist")
     return {"added": n}
 
@@ -230,7 +235,7 @@ async def spam_whitelist(payload: AddressesPayload, user: dict = Depends(get_cur
 @router.post("/blacklist")
 async def spam_blacklist(payload: AddressesPayload, user: dict = Depends(get_current_user)):
     db = get_db()
-    account, domain, _ = await _resolve_account_and_mail(user)
+    account, domain = await _resolve_account(user)
     n = await _apply_wl_bl(db, account, domain, [str(a) for a in payload.addresses], "blacklist")
     return {"added": n}
 
@@ -256,6 +261,7 @@ async def _apply_wl_bl(db, account: dict, domain: dict, addresses: list[str], ki
     added = 0
     da = await _da_client(db, domain)
     local_user = account["email"].split("@")[0]
+    applied: list[str] = []
 
     for addr in dict.fromkeys(addresses):  # dedup preservando ordem
         try:
@@ -264,16 +270,19 @@ async def _apply_wl_bl(db, account: dict, domain: dict, addresses: list[str], ki
                     da.add_whitelist(domain["nome"], local_user, addr)
                 else:
                     da.add_blacklist(domain["nome"], local_user, addr)
+            # Só conta como sucesso se a chamada DA (ou o modo local) não levantou exceção
             added += 1
+            applied.append(addr)
         except DirectAdminError:
             continue
 
-    # persistência local do que foi aplicado (auditoria + fallback)
-    field = f"spam_lists.{kind}"
-    await db.email_accounts.update_one(
-        {"id": account["id"]},
-        {"$addToSet": {field: {"$each": addresses}}},
-    )
+    # persistência local apenas do que foi realmente aplicado (auditoria + fallback)
+    if applied:
+        field = f"spam_lists.{kind}"
+        await db.email_accounts.update_one(
+            {"id": account["id"]},
+            {"$addToSet": {field: {"$each": applied}}},
+        )
     return added
 
 
@@ -290,66 +299,86 @@ async def admin_overview(user: dict = Depends(require_admin)):
 
     Como listar em tempo real todas as pastas seria caro, agregamos apenas as
     contas que já têm senha em cache. Para cada uma abrimos IMAP curto e
-    contamos mensagens na Spam folder.
+    contamos mensagens na Spam folder — as chamadas IMAP síncronas são
+    despachadas em thread pool (asyncio.to_thread) para não bloquear o loop.
     """
     db = get_db()
     q = await _account_scope_filter(user)
     accounts = [a async for a in db.email_accounts.find({**q, "password_enc": {"$nin": [None, ""]}}, {"_id": 0})]
 
-    per_domain: dict[str, dict] = {}
-    per_account: list[dict] = []
-    total_spam = 0
-    reachable = 0
-    total = len(accounts)
+    # Pré-resolve domínios em batch (uma query só)
+    dom_ids = list({a["dominio_id"] for a in accounts if a.get("dominio_id")})
+    domains_by_id = {d["id"]: d async for d in db.domains.find({"id": {"$in": dom_ids}}, {"_id": 0})}
+    srv_ids = list({d["directadmin_server_id"] for d in domains_by_id.values() if d.get("directadmin_server_id")})
+    servers_by_id = {s["id"]: s async for s in db.directadmin_servers.find({"id": {"$in": srv_ids}}, {"_id": 0})}
 
-    for acc in accounts:
-        domain = await db.domains.find_one({"id": acc["dominio_id"]})
+    async def _probe(acc: dict) -> Optional[dict]:
+        domain = domains_by_id.get(acc.get("dominio_id"))
         if not domain:
-            continue
-        try:
-            server = await _get_server(db, domain)
-            host = _imap_host_from_domain(domain, server)
-            if not host:
-                continue
-            password = decrypt(acc.get("password_enc", "") or "")
-            if not password:
-                continue
-            client = MailClient(
-                host=host, email_addr=acc["email"], password=password,
-                imap_port=int(domain.get("imap_port") or 993),
-                smtp_port=int(domain.get("smtp_port") or 587),
-                use_ssl=bool(domain.get("imap_ssl", True)),
-            )
+            return None
+        server = servers_by_id.get(domain.get("directadmin_server_id")) if domain.get("directadmin_server_id") else None
+        host = _imap_host_from_domain(domain, server)
+        if not host:
+            return None
+        password = decrypt(acc.get("password_enc", "") or "")
+        if not password:
+            return None
+        client = MailClient(
+            host=host, email_addr=acc["email"], password=password,
+            imap_port=int(domain.get("imap_port") or 993),
+            smtp_port=int(domain.get("smtp_port") or 587),
+            use_ssl=bool(domain.get("imap_ssl", True)),
+        )
+
+        def _probe_sync() -> dict:
             folder = client.resolve_spam_folder() or "Junk"
-            count = client.folder_count(folder)
-            reachable += 1
-            total_spam += count
-            key = domain["nome"]
-            d_agg = per_domain.setdefault(key, {"domain": key, "spam_count": 0, "accounts": 0})
-            d_agg["spam_count"] += count
-            d_agg["accounts"] += 1
-            per_account.append({
+            return {"folder": folder, "count": client.folder_count(folder)}
+
+        try:
+            probe = await asyncio.to_thread(_probe_sync)
+            return {
                 "account_id": acc["id"],
                 "email": acc["email"],
                 "domain": domain["nome"],
-                "spam_count": count,
-                "folder": folder,
-            })
+                "spam_count": probe["count"],
+                "folder": probe["folder"],
+                "ok": True,
+            }
         except MailError:
-            per_account.append({
+            return {
                 "account_id": acc["id"],
                 "email": acc["email"],
                 "domain": domain["nome"],
                 "spam_count": None,
                 "folder": None,
                 "error": "IMAP inacessível",
-            })
+                "ok": False,
+            }
         except Exception:
+            return None
+
+    # Executa probes em paralelo (limitado pelo pool de threads padrão)
+    results = await asyncio.gather(*[_probe(a) for a in accounts])
+
+    per_domain: dict[str, dict] = {}
+    per_account: list[dict] = []
+    total_spam = 0
+    reachable = 0
+    for r in results:
+        if not r:
             continue
+        per_account.append({k: v for k, v in r.items() if k != "ok"})
+        if r.get("ok") and r.get("spam_count") is not None:
+            reachable += 1
+            total_spam += r["spam_count"]
+            key = r["domain"]
+            d_agg = per_domain.setdefault(key, {"domain": key, "spam_count": 0, "accounts": 0})
+            d_agg["spam_count"] += r["spam_count"]
+            d_agg["accounts"] += 1
 
     per_account.sort(key=lambda x: (x.get("spam_count") or 0), reverse=True)
     return {
-        "total_accounts": total,
+        "total_accounts": len(accounts),
         "reachable": reachable,
         "total_spam": total_spam,
         "per_domain": list(per_domain.values()),
