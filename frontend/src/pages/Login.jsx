@@ -40,8 +40,9 @@ export default function Login() {
         <div className="absolute inset-0 opacity-20"
              style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(255,255,255,.3) 0, transparent 50%), radial-gradient(circle at 80% 80%, rgba(255,255,255,.15) 0, transparent 50%)" }} />
         <div className="relative z-10 flex items-center gap-3">
-          <div className="h-11 w-11 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center">
-            <Shield className="w-6 h-6" />
+          <div className="h-11 w-11 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center overflow-hidden">
+            <img src="/logo.png" alt="Voxyra" className="h-full w-full object-contain p-1"
+                 onError={(e) => { e.currentTarget.style.display = "none"; }}/>
           </div>
           <div>
             <div className="font-display text-2xl font-bold tracking-tight">Voxyra Console</div>
@@ -80,8 +81,9 @@ export default function Login() {
           </Link>
 
           <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="h-10 w-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center">
-              <Shield className="w-5 h-5" />
+            <div className="h-10 w-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center overflow-hidden">
+              <img src="/logo.png" alt="Voxyra" className="h-full w-full object-contain p-1"
+                   onError={(e) => { e.currentTarget.style.display = "none"; }}/>
             </div>
             <div className="font-display font-bold text-xl">Voxyra Console</div>
           </div>

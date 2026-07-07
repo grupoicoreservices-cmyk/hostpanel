@@ -23,9 +23,12 @@ export default function Sidebar({ activeFolder, onFolderChange, onCompose, empre
     <aside className="w-64 flex-shrink-0 flex flex-col bg-secondary border-r border-border">
       {/* Brand */}
       <div className="p-5 flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center shadow-sm">
-          <Mail className="w-5 h-5"/>
-        </div>
+        <img
+          src="/logo.png"
+          alt="Voxyra"
+          className="h-10 w-10 object-contain flex-shrink-0"
+          onError={(e) => { e.currentTarget.style.display = "none"; }}
+        />
         <div>
           <div className="font-display font-bold text-lg leading-tight">Voxyra Mail</div>
           <div className="text-[11px] text-muted-foreground uppercase tracking-wider">SaaS Webmail</div>

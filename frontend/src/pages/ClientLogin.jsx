@@ -278,29 +278,22 @@ export default function ClientLogin() {
 }
 
 function BrandMark({ logoUrl }) {
-  if (logoUrl) {
-    return (
-      <img
-        src={logoUrl}
-        alt="logo"
-        className="h-10 w-auto object-contain"
-        data-testid="client-login-logo"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-    );
-  }
+  const src = logoUrl || "/logo.png";
   return (
-    <div
-      className="w-11 h-11 rounded-full flex items-center justify-center"
-      style={{
-        background: "conic-gradient(from 210deg, #4285F4 0deg, #34A853 90deg, #FBBC05 180deg, #EA4335 270deg, #4285F4 360deg)",
+    <img
+      src={src}
+      alt="logo"
+      className="h-12 w-auto object-contain"
+      data-testid="client-login-logo"
+      onError={(e) => {
+        // Se a customização do cliente falhar, cai no logo padrão do Voxyra
+        if (e.currentTarget.src !== window.location.origin + "/logo.png") {
+          e.currentTarget.src = "/logo.png";
+        } else {
+          e.currentTarget.style.display = "none";
+        }
       }}
-      data-testid="client-login-logo-default"
-    >
-      <div className="w-9 h-9 rounded-full bg-white dark:bg-slate-800 flex items-center justify-center">
-        <Mail className="w-4 h-4 text-blue-600" strokeWidth={2.5} />
-      </div>
-    </div>
+    />
   );
 }
 

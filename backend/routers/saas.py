@@ -380,6 +380,48 @@ async def set_domain_catch_all(domain_id: str, payload: CatchAllPayload, user: d
     return client.get_catch_all(domain_name)
 
 
+# ---------- Rastreamento de e-mails (email tracking) ----------
+@router.get("/dominios/{domain_id}/email-logs")
+async def get_domain_email_logs(
+    domain_id: str,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    address: Optional[str] = None,
+    state: Optional[str] = None,
+    direction: Optional[str] = None,
+    limit: int = 500,
+    user: dict = Depends(require_admin),
+):
+    """Rastreamento de e-mails via `CMD_EMAIL_LOGS` do DirectAdmin.
+
+    Filtros compatíveis com a tela nativa do DA:
+      - `date_from`, `date_to` no formato `YYYY-MM-DD HH:MM` ou `YYYY-MM-DD`
+      - `address` — filtra por qualquer endereço (from ou to)
+      - `state` — `delivered`, `bounced`, `deferred`, `defer`, `frozen`, `unknown`
+      - `direction` — `in` (recebidos) ou `out` (enviados)
+      - `limit` — máximo de linhas retornadas (default 500)
+    """
+    db = get_db()
+    d = await db.domains.find_one({"id": domain_id})
+    if not d:
+        raise HTTPException(404, "Domínio não encontrado")
+    if user["role"] != "superadmin" and d.get("empresa_id") != user.get("empresa_id"):
+        raise HTTPException(403, "Fora do escopo")
+    client, domain_name = await _get_da_client_for_domain(db, domain_id)
+    if not client:
+        raise HTTPException(400, "Domínio não está vinculado a um servidor DirectAdmin")
+    try:
+        rows = client.get_email_logs(
+            domain_name,
+            date_from=date_from, date_to=date_to,
+            address=address, state=state, direction=direction,
+            limit=limit,
+        )
+    except DirectAdminError as e:
+        raise HTTPException(502, str(e))
+    return {"domain": domain_name, "count": len(rows), "rows": rows}
+
+
 class DomainUpdate(BaseModel):
     directadmin_server_id: Optional[str] = None
     imap_host: Optional[str] = None

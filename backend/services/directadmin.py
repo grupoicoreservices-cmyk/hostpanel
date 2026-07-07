@@ -13,6 +13,31 @@ class DirectAdminError(Exception):
     pass
 
 
+_SIZE_UNITS = {"b": 1, "kb": 1024, "mb": 1024 ** 2, "gb": 1024 ** 3}
+
+
+def _parse_size(txt: str) -> int:
+    """Converte '63.04 KB', '2 MB', '512 B' em bytes (int).
+
+    Retorna 0 se não conseguir parsear. Aceita separador de milhar `.`
+    ou `,` e mesmo formato sem unidade (assume bytes).
+    """
+    if not txt:
+        return 0
+    s = txt.strip().lower().replace(",", ".")
+    # extrai número + unidade
+    import re as _re
+    m = _re.match(r"^([\d\.]+)\s*(kb|mb|gb|b)?$", s)
+    if not m:
+        return 0
+    try:
+        val = float(m.group(1))
+    except ValueError:
+        return 0
+    unit = (m.group(2) or "b").lower()
+    return int(val * _SIZE_UNITS.get(unit, 1))
+
+
 class DirectAdminClient:
     def __init__(self, url: str, port: int, api_user: str, api_token: str, ssl: bool = True, timeout: int = 15):
         scheme = "https" if ssl else "http"
@@ -226,6 +251,115 @@ class DirectAdminClient:
             "value": value,
         }
         return self._request("CMD_API_EMAIL_CATCH_ALL", params, method="POST")
+
+    # ---------- Email logs / tracking ----------
+    def get_email_logs(
+        self,
+        domain: str,
+        *,
+        date_from: str | None = None,   # "YYYY-MM-DD HH:MM" ou "YYYY-MM-DD"
+        date_to: str | None = None,
+        address: str | None = None,
+        state: str | None = None,       # "delivered" | "bounced" | "deferred" | ...
+        direction: str | None = None,   # "in" | "out" | ""
+        limit: int = 500,
+    ) -> list[dict]:
+        """Faz scraping do `CMD_EMAIL_LOGS` (a tela web do DA) para retornar
+        um histórico paginado de entrega de e-mails do domínio.
+
+        DirectAdmin não expõe `CMD_API_EMAIL_LOGS` na maioria das versões, mas
+        a tela HTML é autenticada com o mesmo token do painel, então usamos ela
+        via `requests` + BeautifulSoup para extrair a tabela.
+
+        Retorna lista de dicts: {direction, state, from, to, subject, size, date}
+        onde `size` está em bytes (int) e `date` é ISO-8601 UTC quando possível.
+        """
+        import requests as _req
+        from bs4 import BeautifulSoup
+
+        params = {"domain": domain}
+        if date_from: params["period_start"] = date_from
+        if date_to: params["period_end"] = date_to
+        if address: params["address"] = address
+        if state: params["state"] = state
+        if direction: params["direction"] = direction
+
+        url = f"{self.base}/CMD_EMAIL_LOGS"
+        try:
+            r = _req.get(
+                url, params=params,
+                auth=(self.user, self.token),
+                timeout=self.timeout, verify=self.verify_ssl,
+            )
+        except _req.RequestException as e:
+            raise DirectAdminError(f"Falha ao consultar CMD_EMAIL_LOGS: {e}") from e
+        if r.status_code >= 400:
+            raise DirectAdminError(f"HTTP {r.status_code} ao consultar logs")
+
+        soup = BeautifulSoup(r.text, "lxml")
+
+        # DirectAdmin renderiza a tabela de logs dentro de um <table> com colunas
+        # em ordem: Direção, Estado, De, Para, Assunto, Tamanho, Data.
+        # Alguns temas do DA usam `<table class="list">` ou `#emailLogTable` — para
+        # ser robusto, iteramos por TODAS as tabelas e escolhemos aquela cujo header
+        # contém "De" e "Para" e "Assunto".
+        target = None
+        for tbl in soup.find_all("table"):
+            headers = [th.get_text(strip=True).lower() for th in tbl.find_all("th")]
+            if not headers:
+                # tenta a 1ª linha como header
+                first_row = tbl.find("tr")
+                if first_row:
+                    headers = [td.get_text(strip=True).lower() for td in first_row.find_all(["td", "th"])]
+            joined = " ".join(headers)
+            # Match tanto pt quanto en
+            if ("de" in headers and "para" in headers) or ("from" in headers and "to" in headers) \
+                    or ("assunto" in joined) or ("subject" in joined):
+                target = tbl
+                break
+
+        if not target:
+            return []
+
+        rows_out: list[dict] = []
+        rows = target.find_all("tr")
+        # detecta header index dinamicamente
+        header_cells = rows[0].find_all(["th", "td"])
+        headers = [c.get_text(strip=True).lower() for c in header_cells]
+
+        def _idx(*names):
+            for n in names:
+                if n in headers:
+                    return headers.index(n)
+            return -1
+
+        i_dir = _idx("direção", "direcao", "direction")
+        i_state = _idx("estado", "state", "status")
+        i_from = _idx("de", "from")
+        i_to = _idx("para", "to")
+        i_subj = _idx("assunto", "subject")
+        i_size = _idx("tamanho", "size")
+        i_date = _idx("data", "date")
+
+        for tr in rows[1:limit + 1]:
+            cells = tr.find_all(["td"])
+            if not cells:
+                continue
+            def _get(i):
+                return cells[i].get_text(" ", strip=True) if 0 <= i < len(cells) else ""
+            size_txt = _get(i_size)
+            size_bytes = _parse_size(size_txt)
+            rows_out.append({
+                "direction": _get(i_dir).lower() or "out",
+                "state": _get(i_state).lower() or "unknown",
+                "from": _get(i_from),
+                "to": _get(i_to),
+                "subject": _get(i_subj),
+                "size": size_bytes,
+                "size_text": size_txt,
+                "date": _get(i_date),
+            })
+        return rows_out
 
     # ---------- Antispam (SpamAssassin per user) ----------
     def get_spam_config(self, domain: str, user: str) -> dict:

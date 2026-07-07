@@ -16,6 +16,7 @@ import AdminDashboard from "@/pages/admin/Dashboard";
 import AdminEmpresas from "@/pages/admin/Empresas";
 import AdminServers from "@/pages/admin/Servers";
 import AdminDomains from "@/pages/admin/Domains";
+import AdminEmailTracking from "@/pages/admin/EmailTracking";
 import AdminAccounts from "@/pages/admin/Accounts";
 import AdminLogs from "@/pages/admin/Logs";
 import AdminUsers from "@/pages/admin/Users";
@@ -87,6 +88,7 @@ export default function App() {
               <Route path="empresas" element={<AdminEmpresas />} />
               <Route path="servidores" element={<AdminServers />} />
               <Route path="dominios" element={<AdminDomains />} />
+              <Route path="rastreamento" element={<AdminEmailTracking />} />
               <Route path="contas" element={<AdminAccounts />} />
               <Route path="usuarios" element={<AdminUsers />} />
               <Route path="monitoramento" element={<AdminMonitoring />} />
