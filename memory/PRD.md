@@ -46,6 +46,7 @@ Construir um Webmail Host SaaS multiempresa/multidomínio integrado a servidores
    - **Marcar não lida**: `POST /api/webmail/messages/{uid}/mark-unread` remove flag `\\Seen` do IMAP.
    - Testing agent iteração 10: **100% pass** (backend 9/9, frontend 100%, retest_needed: False).
 - ✅ **Cleanup (07/07/2026)**: método duplicado `mark_flag` removido de `services/mail.py` (mantido apenas `flag()`).
+- ✅ **Fix EXAMINE Invalid arguments + Splash Carregando (07/07/2026)**: bug crítico de produção onde Dovecot rejeitava EXAMINE `BAD Invalid arguments` toda vez que o webmail carregava. Corrigido com nova função `_safe_folder(name)` em `services/mail.py` que aplica strip + quoting duplo em TODOS os `m.select()` (9 chamadas atualizadas), fallback INBOX para vazios, preserva quotes existentes. Frontend: pastas virtuais `Starred`/`Snoozed` deixaram de disparar chamada backend (fetcher retorna `[]`). Adicionado splash `data-testid="webmail-loading-splash"` na entrada do webmail com "Carregando conteúdo…" + 3 pontinhos animados. `MessageList` agora mostra skeleton com 6 linhas `animate-pulse` durante loading (`keepPreviousData: true` do SWR REMOVIDO — troca de pasta não trava mais com dados antigos). Banner de erro agora tem botão dismiss (`mail-error-dismiss`). Testing_agent iteração 11: **100% pass** backend + frontend.
 
 ## Backlog priorizado (P1)
 - Upload / download de anexos reais (multipart) no compose e reading pane.
