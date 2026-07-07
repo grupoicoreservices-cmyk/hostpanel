@@ -150,8 +150,10 @@ export default function ReadingPane({
         </div>
       </div>
 
-      {/* Content — scrollbar sempre visível via voxyra-scroll-visible */}
-      <div className="flex-1 overflow-y-scroll voxyra-scroll-visible p-6" data-testid="reading-scroll-area">
+      {/* Content — scrollbar sempre visível via voxyra-scroll-visible.
+          `min-h-0` é crítico: sem ele, `flex-1` num flex-col ganha
+          min-height:auto e o overflow-y-scroll interno é ignorado. */}
+      <div className="flex-1 min-h-0 overflow-y-scroll voxyra-scroll-visible p-6" data-testid="reading-scroll-area">
         <div className="mb-4 flex items-center gap-2 flex-wrap">
           <h1 className="font-display text-3xl font-bold tracking-tight">{message.subject || "(sem assunto)"}</h1>
           {message.folder && (

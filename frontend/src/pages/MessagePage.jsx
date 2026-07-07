@@ -99,9 +99,9 @@ export default function MessagePage() {
   };
 
   return (
-    <div className="min-h-screen w-full flex flex-col bg-background" data-testid="message-page">
+    <div className="h-screen w-full flex flex-col bg-background overflow-hidden" data-testid="message-page">
       {/* Barra superior compacta */}
-      <div className="border-b border-border bg-card">
+      <div className="border-b border-border bg-card flex-shrink-0">
         <div className="px-4 py-3 flex items-center gap-3">
           <button
             onClick={() => (window.history.length > 1 ? navigate(-1) : navigate("/mail"))}
@@ -127,7 +127,7 @@ export default function MessagePage() {
       </div>
 
       {/* Reading pane full width */}
-      <div className="flex-1 flex">
+      <div className="flex-1 flex min-h-0">
         {loading ? (
           <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
             Carregando mensagem…
