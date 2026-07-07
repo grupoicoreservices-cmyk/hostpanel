@@ -90,6 +90,11 @@
   background: hsl(var(--muted-foreground) / 0.5);
 }
 
+/* Formulários Roundcube-style */
+.input {
+  @apply w-full px-3 py-2.5 rounded-xl border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all;
+}
+
 /* Compose modal slide-up animation */
 @keyframes voxyra-slide-up {
   from { transform: translateY(24px); opacity: 0; }

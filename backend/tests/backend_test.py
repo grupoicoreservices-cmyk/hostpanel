@@ -352,3 +352,144 @@ class TestAntispam:
         s = _admin_login()
         r = s.get(f"{BASE_URL}/api/antispam/accounts/does-not-exist/blacklist")
         assert r.status_code == 404
+
+
+# ---- NEW: Webmail bypass login + domain IMAP/SMTP config ----
+class TestWebmailBypassAndDomainConfig:
+    state = {}
+
+    def test_a_bypass_domain_not_found_401(self):
+        r = requests.post(f"{BASE_URL}/api/auth/webmail-login",
+                          json={"email": f"nobody-{uuid.uuid4().hex[:6]}@nao-existe-{uuid.uuid4().hex[:4]}.com",
+                                "password": "whatever"})
+        assert r.status_code == 401, r.text
+        detail = r.json().get("detail", "").lower()
+        assert "domínio" in detail or "dominio" in detail or "não hospedado" in detail
+
+    def test_b_bypass_invalid_email_format_422(self):
+        r = requests.post(f"{BASE_URL}/api/auth/webmail-login",
+                          json={"email": "no-at-sign", "password": "x"})
+        assert r.status_code in (400, 422), r.text
+
+    def test_c_domain_create_full_fields(self):
+        s = _admin_login()
+        TestWebmailBypassAndDomainConfig.state["session"] = s
+        # empresa
+        r = s.post(f"{BASE_URL}/api/empresas",
+                   json={"nome": f"TEST_BypassEmp_{uuid.uuid4().hex[:6]}"})
+        assert r.status_code == 200
+        emp_id = r.json()["id"]
+        TestWebmailBypassAndDomainConfig.state["empresa"] = emp_id
+
+        dom_name = f"bypass{uuid.uuid4().hex[:6]}.example.com"
+        payload = {
+            "nome": dom_name, "empresa_id": emp_id,
+            "imap_host": "imap.example.invalid", "imap_port": 993, "imap_ssl": True,
+            "smtp_host": "smtp.example.invalid", "smtp_port": 587, "smtp_tls": True,
+            "webmail_url": "https://mail.example.invalid",
+            "allow_bypass_login": False,
+        }
+        r = s.post(f"{BASE_URL}/api/dominios", json=payload)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        TestWebmailBypassAndDomainConfig.state["domain"] = d["id"]
+        TestWebmailBypassAndDomainConfig.state["domain_nome"] = dom_name
+        for k in ("imap_host", "imap_port", "imap_ssl", "smtp_host", "smtp_port",
+                  "smtp_tls", "webmail_url", "allow_bypass_login"):
+            assert k in d, f"missing {k} in response"
+        assert d["imap_host"] == "imap.example.invalid"
+        assert d["imap_port"] == 993
+        assert d["smtp_host"] == "smtp.example.invalid"
+        assert d["webmail_url"] == "https://mail.example.invalid"
+        assert d["allow_bypass_login"] is False
+
+    def test_d_list_returns_new_fields(self):
+        s = TestWebmailBypassAndDomainConfig.state["session"]
+        dom_id = TestWebmailBypassAndDomainConfig.state["domain"]
+        r = s.get(f"{BASE_URL}/api/dominios")
+        assert r.status_code == 200
+        d = next((x for x in r.json() if x["id"] == dom_id), None)
+        assert d is not None
+        for k in ("imap_host", "imap_port", "imap_ssl", "smtp_host", "smtp_port",
+                  "smtp_tls", "webmail_url", "allow_bypass_login"):
+            assert k in d
+
+    def test_e_patch_partial_preserves_other_fields(self):
+        s = TestWebmailBypassAndDomainConfig.state["session"]
+        dom_id = TestWebmailBypassAndDomainConfig.state["domain"]
+        r = s.patch(f"{BASE_URL}/api/dominios/{dom_id}",
+                    json={"imap_host": "new.imap.invalid", "allow_bypass_login": True})
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["imap_host"] == "new.imap.invalid"
+        assert d["allow_bypass_login"] is True
+        # other fields must be preserved
+        assert d["smtp_host"] == "smtp.example.invalid"
+        assert d["smtp_port"] == 587
+        assert d["webmail_url"] == "https://mail.example.invalid"
+
+    def test_f_bypass_disabled_when_flag_false(self):
+        # create a new domain with allow_bypass_login false
+        s = TestWebmailBypassAndDomainConfig.state["session"]
+        emp_id = TestWebmailBypassAndDomainConfig.state["empresa"]
+        dom_name = f"noflag{uuid.uuid4().hex[:6]}.example.com"
+        r = s.post(f"{BASE_URL}/api/dominios", json={
+            "nome": dom_name, "empresa_id": emp_id,
+            "imap_host": "imap.example.invalid", "allow_bypass_login": False,
+        })
+        assert r.status_code == 200
+        TestWebmailBypassAndDomainConfig.state["nobypass_domain"] = r.json()["id"]
+
+        r = requests.post(f"{BASE_URL}/api/auth/webmail-login",
+                          json={"email": f"any@{dom_name}", "password": "whatever"})
+        assert r.status_code == 401, r.text
+        detail = r.json().get("detail", "").lower()
+        assert "bypass" in detail or "não habilitado" in detail or "nao habilitado" in detail
+
+    def test_g_bypass_active_but_imap_unreachable_401(self):
+        # domain from test_e has allow_bypass_login=True and imap_host=new.imap.invalid
+        dom_name = TestWebmailBypassAndDomainConfig.state["domain_nome"]
+        r = requests.post(f"{BASE_URL}/api/auth/webmail-login",
+                          json={"email": f"someuser@{dom_name}", "password": "any"})
+        # IMAP connect fails -> 401 "E-mail ou senha inválidos"
+        assert r.status_code == 401, r.text
+
+    def test_h_test_imap_invalid_id_404(self):
+        s = TestWebmailBypassAndDomainConfig.state["session"]
+        r = s.post(f"{BASE_URL}/api/dominios/does-not-exist-xyz/test-imap")
+        assert r.status_code == 404
+
+    def test_i_test_imap_bad_host_returns_ok_false(self):
+        s = TestWebmailBypassAndDomainConfig.state["session"]
+        dom_id = TestWebmailBypassAndDomainConfig.state["domain"]
+        r = s.post(f"{BASE_URL}/api/dominios/{dom_id}/test-imap")
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["ok"] is False
+        assert "error" in d
+
+    def test_j_test_smtp_invalid_id_404(self):
+        s = TestWebmailBypassAndDomainConfig.state["session"]
+        r = s.post(f"{BASE_URL}/api/dominios/does-not-exist-xyz/test-smtp")
+        assert r.status_code == 404
+
+    def test_k_test_smtp_bad_host_returns_ok_false(self):
+        s = TestWebmailBypassAndDomainConfig.state["session"]
+        dom_id = TestWebmailBypassAndDomainConfig.state["domain"]
+        r = s.post(f"{BASE_URL}/api/dominios/{dom_id}/test-smtp")
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["ok"] is False
+        assert "error" in d
+
+    def test_z_cleanup(self):
+        s = TestWebmailBypassAndDomainConfig.state.get("session")
+        if not s:
+            return
+        st = TestWebmailBypassAndDomainConfig.state
+        if st.get("nobypass_domain"):
+            s.delete(f"{BASE_URL}/api/dominios/{st['nobypass_domain']}")
+        if st.get("domain"):
+            s.delete(f"{BASE_URL}/api/dominios/{st['domain']}")
+        if st.get("empresa"):
+            s.delete(f"{BASE_URL}/api/empresas/{st['empresa']}")

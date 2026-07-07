@@ -90,6 +90,17 @@ class DomainBase(BaseModel):
     nome: str
     empresa_id: str
     directadmin_server_id: Optional[str] = None
+    # Configuração IMAP/SMTP do domínio (usado por bypass login e webmail)
+    imap_host: Optional[str] = None
+    imap_port: int = 993
+    imap_ssl: bool = True
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_tls: bool = True
+    webmail_url: Optional[str] = None
+    # Se True, qualquer e-mail deste domínio pode fazer login direto no webmail
+    # usando a senha da própria caixa IMAP (sem cadastro manual de usuário).
+    allow_bypass_login: bool = False
 
 
 class DomainCreate(DomainBase):

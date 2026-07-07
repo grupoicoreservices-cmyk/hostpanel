@@ -1,6 +1,7 @@
 """SaaS admin routers: empresas, servidores DirectAdmin, domínios, contas de e-mail, logs, prefs."""
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from typing import Optional
 
 from database import get_db
@@ -328,6 +329,73 @@ async def delete_domain(domain_id: str, user: dict = Depends(require_admin)):
     await db.email_accounts.delete_many({"dominio_id": domain_id})
     await _log_action(user, "domain.delete", target=domain_id)
     return {"ok": True}
+
+
+class DomainUpdate(BaseModel):
+    directadmin_server_id: Optional[str] = None
+    imap_host: Optional[str] = None
+    imap_port: Optional[int] = None
+    imap_ssl: Optional[bool] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_tls: Optional[bool] = None
+    webmail_url: Optional[str] = None
+    allow_bypass_login: Optional[bool] = None
+
+
+@router.patch("/dominios/{domain_id}", response_model=DomainOut)
+async def update_domain(domain_id: str, payload: DomainUpdate, user: dict = Depends(require_admin)):
+    db = get_db()
+    d = await db.domains.find_one({"id": domain_id})
+    if not d:
+        raise HTTPException(404, "Domínio não encontrado")
+    if user["role"] != "superadmin" and d.get("empresa_id") != user.get("empresa_id"):
+        raise HTTPException(403, "Fora do escopo")
+
+    upd = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if upd:
+        await db.domains.update_one({"id": domain_id}, {"$set": upd})
+    await _log_action(user, "domain.update", target=domain_id, details={"fields": list(upd.keys())})
+
+    fresh = await db.domains.find_one({"id": domain_id}, {"_id": 0})
+    fresh["contas_count"] = await db.email_accounts.count_documents({"dominio_id": domain_id})
+    return DomainOut(**fresh)
+
+
+@router.post("/dominios/{domain_id}/test-imap")
+async def test_domain_imap(domain_id: str, user: dict = Depends(require_admin)):
+    import socket
+    db = get_db()
+    d = await db.domains.find_one({"id": domain_id})
+    if not d:
+        raise HTTPException(404, "Domínio não encontrado")
+    if user["role"] != "superadmin" and d.get("empresa_id") != user.get("empresa_id"):
+        raise HTTPException(403, "Fora do escopo")
+    host = d.get("imap_host") or f"mail.{d['nome']}"
+    port = int(d.get("imap_port") or 993)
+    try:
+        with socket.create_connection((host, port), timeout=5):
+            return {"ok": True, "host": host, "port": port}
+    except Exception as e:
+        return {"ok": False, "host": host, "port": port, "error": str(e)[:200]}
+
+
+@router.post("/dominios/{domain_id}/test-smtp")
+async def test_domain_smtp(domain_id: str, user: dict = Depends(require_admin)):
+    import socket
+    db = get_db()
+    d = await db.domains.find_one({"id": domain_id})
+    if not d:
+        raise HTTPException(404, "Domínio não encontrado")
+    if user["role"] != "superadmin" and d.get("empresa_id") != user.get("empresa_id"):
+        raise HTTPException(403, "Fora do escopo")
+    host = d.get("smtp_host") or d.get("imap_host") or f"mail.{d['nome']}"
+    port = int(d.get("smtp_port") or 587)
+    try:
+        with socket.create_connection((host, port), timeout=5):
+            return {"ok": True, "host": host, "port": port}
+    except Exception as e:
+        return {"ok": False, "host": host, "port": port, "error": str(e)[:200]}
 
 
 # ---------- Contas de e-mail ----------

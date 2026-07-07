@@ -4,12 +4,14 @@ import { Mail, Lock, ArrowRight, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/context/AuthContext";
-import { formatApiErrorDetail } from "@/lib/api";
+import { api, formatApiErrorDetail } from "@/lib/api";
 import { AUTH } from "@/lib/testIds";
 
-/** Login exclusivo do cliente final — sem menções a admin/SaaS. */
+/** Login exclusivo do cliente final — sem menções a admin/SaaS.
+ *  Tenta bypass IMAP primeiro (autentica direto contra o servidor do domínio),
+ *  cai no login normal se o domínio não tiver bypass ativo. */
 export default function ClientLogin() {
-  const { login } = useAuth();
+  const { refresh } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -20,10 +22,20 @@ export default function ClientLogin() {
     e.preventDefault();
     setLoading(true);
     setError("");
+    const emailTrim = email.trim().toLowerCase();
     try {
-      const u = await login(email.trim(), password);
-      toast.success(`Bem-vindo, ${u.name || u.email}`);
-      // Cliente sempre para /mail; admin também pode acessar
+      // 1º tenta bypass IMAP (por domínio)
+      let data;
+      try {
+        const res = await api.post("/auth/webmail-login", { email: emailTrim, password });
+        data = res.data;
+      } catch (bypassErr) {
+        // Se o servidor recusou o bypass, tenta o login tradicional (usuário cadastrado)
+        const res = await api.post("/auth/login", { email: emailTrim, password });
+        data = res.data;
+      }
+      await refresh();
+      toast.success(`Bem-vindo, ${data.user.name || data.user.email}`);
       navigate("/mail");
     } catch (e) {
       const msg = formatApiErrorDetail(e.response?.data?.detail) || e.message;
