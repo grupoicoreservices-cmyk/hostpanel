@@ -37,7 +37,8 @@ async def webmail_login(payload: WebmailLoginPayload, request: Request, response
         raise HTTPException(400, "Formato de e-mail inválido")
 
     domain_name = email.split("@", 1)[1]
-    ip = request.client.host if request.client else "unknown"
+    fwd = request.headers.get("x-forwarded-for", "")
+    ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
     identifier = f"{ip}:{email}"
 
     await _check_lockout(identifier)
