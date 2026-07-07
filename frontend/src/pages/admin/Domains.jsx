@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Globe, X, RefreshCw, Server, Mail, Send, Zap, Link2, Shield, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { Plus, Trash2, Globe, X, RefreshCw, Server, Mail, Send, Zap, Link2, Shield, ChevronDown, ChevronUp, ExternalLink, Inbox } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { ADMIN } from "@/lib/testIds";
 
@@ -31,6 +31,10 @@ export default function AdminDomains() {
   const [syncing, setSyncing] = useState(null);
   const [testing, setTesting] = useState(null);
   const [expandAdvanced, setExpandAdvanced] = useState(false);
+  const [catchAll, setCatchAll] = useState(null); // {domain, current}
+
+  const openCatchAll = (d) => setCatchAll({ domain: d, current: null });
+  const closeCatchAll = () => setCatchAll(null);
 
   const load = useCallback(async () => {
     try {
@@ -220,6 +224,14 @@ export default function AdminDomains() {
                       className="p-1.5 rounded-md hover:bg-primary/10 text-primary"
                       title="Sincronizar contas do DirectAdmin"
                     ><RefreshCw className={`w-4 h-4 ${syncing === r.id ? "animate-spin" : ""}`}/></button>
+                  )}
+                  {r.directadmin_server_id && (
+                    <button
+                      data-testid={`admin-catchall-domain-${r.id}`}
+                      onClick={() => openCatchAll(r)}
+                      className="p-1.5 rounded-md hover:bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                      title="Configurar catch-all"
+                    ><Inbox className="w-4 h-4"/></button>
                   )}
                   <button data-testid={`${ADMIN.deleteRow}domain-${r.id}`} onClick={() => del(r.id)} className="p-1.5 rounded-md hover:bg-destructive/10 text-destructive"><Trash2 className="w-4 h-4"/></button>
                 </td>
@@ -480,6 +492,10 @@ export default function AdminDomains() {
           </div>
         </div>
       )}
+
+      {catchAll && (
+        <CatchAllModal domain={catchAll.domain} onClose={closeCatchAll} />
+      )}
     </div>
   );
 }
@@ -509,5 +525,174 @@ function Field({ label, required, children }) {
       </span>
       <div className="mt-1">{children}</div>
     </label>
+  );
+}
+
+/* --------- Catch-all modal --------- */
+function CatchAllModal({ domain, onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [mode, setMode] = useState("unset");
+  const [address, setAddress] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const { data } = await api.get(`/dominios/${domain.id}/catch-all`);
+        setMode(data.mode || "unset");
+        setAddress(data.value || "");
+      } catch (e) {
+        setError(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+      } finally { setLoading(false); }
+    })();
+  }, [domain.id]);
+
+  const save = async () => {
+    if (mode === "address" && !address.includes("@")) {
+      toast.error("Informe um e-mail de destino válido");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const { data } = await api.put(`/dominios/${domain.id}/catch-all`, {
+        mode,
+        address: mode === "address" ? address : null,
+      });
+      setMode(data.mode || "unset");
+      setAddress(data.value || "");
+      toast.success(`Catch-all de ${domain.nome} atualizado`);
+      onClose();
+    } catch (e) {
+      const msg = formatApiErrorDetail(e.response?.data?.detail) || e.message;
+      setError(msg);
+      toast.error(msg);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div
+        data-testid="catchall-modal"
+        className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-md voxyra-compose-anim"
+      >
+        <div className="p-5 border-b border-border flex items-center justify-between">
+          <div>
+            <h2 className="font-display text-lg font-bold flex items-center gap-2">
+              <Inbox className="w-4 h-4 text-blue-600" /> Catch-all
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Domínio: <span className="font-mono">{domain.nome}</span></p>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-muted rounded"><X className="w-4 h-4"/></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {loading ? (
+            <div className="text-sm text-muted-foreground">Carregando configuração atual…</div>
+          ) : (
+            <>
+              <div className="text-xs text-muted-foreground leading-relaxed">
+                O catch-all define o que acontece quando alguém envia um e-mail para um endereço
+                <span className="font-mono">@{domain.nome}</span> que não existe.
+              </div>
+
+              <div className="space-y-2">
+                <ModeOption
+                  testid="catchall-mode-address"
+                  active={mode === "address"}
+                  onClick={() => setMode("address")}
+                  title="Encaminhar para um e-mail"
+                  desc="Todas as mensagens para endereços inexistentes vão para esta caixa."
+                />
+                <ModeOption
+                  testid="catchall-mode-blackhole"
+                  active={mode === "blackhole"}
+                  onClick={() => setMode("blackhole")}
+                  title="Descartar silenciosamente"
+                  desc="Ideal para reduzir spam — mensagens somem sem aviso ao remetente."
+                />
+                <ModeOption
+                  testid="catchall-mode-fail"
+                  active={mode === "fail"}
+                  onClick={() => setMode("fail")}
+                  title="Rejeitar (bounce)"
+                  desc="Devolve com erro para o remetente. Útil para exigir endereço correto."
+                />
+                <ModeOption
+                  testid="catchall-mode-unset"
+                  active={mode === "unset"}
+                  onClick={() => setMode("unset")}
+                  title="Sem catch-all (default do servidor)"
+                  desc="Volta ao comportamento padrão do DirectAdmin/Exim."
+                />
+              </div>
+
+              {mode === "address" && (
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-1">
+                    E-mail de destino
+                  </label>
+                  <input
+                    data-testid="catchall-address-input"
+                    type="email"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder={`captura@${domain.nome}`}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                </div>
+              )}
+
+              {error && (
+                <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
+                  {error}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="p-5 border-t border-border flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted"
+          >Cancelar</button>
+          <button
+            data-testid="catchall-save-btn"
+            onClick={save}
+            disabled={saving || loading}
+            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-blue-700 disabled:opacity-60"
+          >{saving ? "Salvando…" : "Salvar"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModeOption({ testid, active, onClick, title, desc }) {
+  return (
+    <button
+      type="button"
+      data-testid={testid}
+      onClick={onClick}
+      className={`w-full text-left px-3 py-2.5 rounded-lg border transition-colors ${
+        active
+          ? "border-primary bg-primary/5"
+          : "border-border hover:border-primary/40 hover:bg-muted/50"
+      }`}
+    >
+      <div className="flex items-start gap-2">
+        <div className={`w-3 h-3 mt-1 rounded-full border-2 flex-shrink-0 ${
+          active ? "border-primary bg-primary" : "border-muted-foreground/40"
+        }`} />
+        <div>
+          <div className="text-sm font-semibold">{title}</div>
+          <div className="text-[11px] text-muted-foreground">{desc}</div>
+        </div>
+      </div>
+    </button>
   );
 }

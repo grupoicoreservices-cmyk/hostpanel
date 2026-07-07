@@ -338,6 +338,48 @@ async def delete_domain(domain_id: str, user: dict = Depends(require_admin)):
     return {"ok": True}
 
 
+# ---------- Catch-all ----------
+class CatchAllPayload(BaseModel):
+    mode: str = Field(..., description="'address' | 'blackhole' | 'fail' | 'unset'")
+    address: Optional[str] = Field(None, description="E-mail de destino (se mode=='address')")
+
+
+@router.get("/dominios/{domain_id}/catch-all")
+async def get_domain_catch_all(domain_id: str, user: dict = Depends(require_admin)):
+    db = get_db()
+    d = await db.domains.find_one({"id": domain_id})
+    if not d:
+        raise HTTPException(404, "Domínio não encontrado")
+    if user["role"] != "superadmin" and d.get("empresa_id") != user.get("empresa_id"):
+        raise HTTPException(403, "Fora do escopo")
+    client, domain_name = await _get_da_client_for_domain(db, domain_id)
+    if not client:
+        raise HTTPException(400, "Domínio não está vinculado a um servidor DirectAdmin")
+    try:
+        return client.get_catch_all(domain_name)
+    except DirectAdminError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.put("/dominios/{domain_id}/catch-all")
+async def set_domain_catch_all(domain_id: str, payload: CatchAllPayload, user: dict = Depends(require_admin)):
+    db = get_db()
+    d = await db.domains.find_one({"id": domain_id})
+    if not d:
+        raise HTTPException(404, "Domínio não encontrado")
+    if user["role"] != "superadmin" and d.get("empresa_id") != user.get("empresa_id"):
+        raise HTTPException(403, "Fora do escopo")
+    client, domain_name = await _get_da_client_for_domain(db, domain_id)
+    if not client:
+        raise HTTPException(400, "Domínio não está vinculado a um servidor DirectAdmin")
+    try:
+        client.set_catch_all(domain_name, payload.mode, payload.address)
+        await _log_action(user, "domain.catchall.set", target=domain_id, details={"mode": payload.mode})
+    except DirectAdminError as e:
+        raise HTTPException(502, str(e))
+    return client.get_catch_all(domain_name)
+
+
 class DomainUpdate(BaseModel):
     directadmin_server_id: Optional[str] = None
     imap_host: Optional[str] = None
