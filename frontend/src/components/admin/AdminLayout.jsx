@@ -3,6 +3,7 @@ import { Mail, LayoutDashboard, Building2, Server, Globe, Users2, UserCircle2, S
 import { useAuth } from "@/context/AuthContext";
 import { usePrefs } from "@/context/PrefsContext";
 import { ADMIN, AUTH, MAIL } from "@/lib/testIds";
+import { roleLabel } from "@/lib/roles";
 
 const NAV = [
   { to: "/admin/dashboard",   label: "Dashboard",     icon: LayoutDashboard, id: "dashboard",     color: "text-blue-500" },
@@ -10,7 +11,7 @@ const NAV = [
   { to: "/admin/servidores",  label: "Servidores DA", icon: Server,          id: "servidores",    color: "text-emerald-500", superOnly: true },
   { to: "/admin/dominios",    label: "Domínios",      icon: Globe,           id: "dominios",      color: "text-sky-500" },
   { to: "/admin/contas",      label: "Contas de e-mail", icon: Users2,       id: "contas",        color: "text-amber-500" },
-  { to: "/admin/usuarios",    label: "Usuários",      icon: UserCircle2,     id: "usuarios",      color: "text-rose-500" },
+  { to: "/admin/usuarios",    label: "Usuários & Perfis", icon: UserCircle2,     id: "usuarios",      color: "text-rose-500" },
   { to: "/admin/monitoramento", label: "Monitoramento", icon: Activity,      id: "monitoramento", color: "text-lime-500" },
   { to: "/admin/antispam",    label: "Antispam Center", icon: ShieldAlert,   id: "antispam",      color: "text-red-500" },
   { to: "/admin/quarentena",  label: "Quarentena Spam", icon: ShieldX,       id: "quarentena",    color: "text-pink-500" },
@@ -75,7 +76,7 @@ export default function AdminLayout() {
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-xs font-semibold truncate">{user?.name}</div>
-            <div className="text-[11px] text-muted-foreground truncate uppercase tracking-wider">{user?.role}</div>
+            <div className="text-[11px] text-muted-foreground truncate uppercase tracking-wider">{roleLabel(user?.role)}</div>
           </div>
           <button
             data-testid={MAIL.themeToggle}

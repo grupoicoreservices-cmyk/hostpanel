@@ -11,6 +11,8 @@ export default function AdminAccounts() {
   const [form, setForm] = useState({ email: "", dominio_id: "", empresa_id: "", quota_mb: 1024, password: "" });
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [pwdModal, setPwdModal] = useState(null); // {id, email, password, confirm}
+  const [quotaModal, setQuotaModal] = useState(null); // {id, email, quota_mb}
 
   const load = useCallback(async () => {
     try {

@@ -467,7 +467,11 @@ async def update_account(account_id: str, payload: EmailAccountUpdate, user: dic
         raise HTTPException(403, "Fora do escopo")
 
     upd = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if "password" in upd and len(upd["password"]) < 6:
+        raise HTTPException(400, "Senha muito curta (mínimo 6 caracteres)")
+
     da_status = "skipped"
+    da_error: Optional[str] = None
 
     client, domain_name = await _get_da_client_for_domain(db, acc["dominio_id"])
     if client:
@@ -481,13 +485,24 @@ async def update_account(account_id: str, payload: EmailAccountUpdate, user: dic
                 client.suspend(domain_name, local_part, upd["status"] == "suspenso")
             da_status = "ok"
         except DirectAdminError as e:
-            da_status = f"error: {e}"
+            da_error = str(e)
+            da_status = f"error: {da_error}"
+
+    # Se a operação envolve mudar senha e o DirectAdmin falhou, não persiste
+    # a senha local pra evitar dessincronia (usuário não conseguiria logar via IMAP).
+    if "password" in upd and da_error and client:
+        raise HTTPException(
+            502,
+            f"DirectAdmin recusou a nova senha: {da_error}. Senha NÃO foi alterada. "
+            f"Verifique a política de complexidade do servidor.",
+        )
 
     if "password" in upd:
         upd["password_enc"] = encrypt(upd.pop("password"))
 
-    await db.email_accounts.update_one({"id": account_id}, {"$set": upd})
-    await _log_action(user, "account.update", target=account_id, details={"da": da_status, "fields": list(upd.keys())})
+    if upd:
+        await db.email_accounts.update_one({"id": account_id}, {"$set": upd})
+    await _log_action(user, "account.update", target=account_id, details={"da": da_status, "fields": list(upd.keys()) + (["password"] if "password_enc" in upd else [])})
     doc = await db.email_accounts.find_one({"id": account_id}, {"_id": 0, "password_enc": 0})
     return EmailAccountOut(**doc)
 
@@ -594,3 +609,86 @@ async def create_user(payload: UserCreate, user: dict = Depends(require_admin)):
     doc.pop("password_hash", None)
     doc.pop("_id", None)
     return UserOut(**doc)
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    empresa_id: Optional[str] = None
+    email_account_id: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class PasswordReset(BaseModel):
+    password: str
+
+
+@router.patch("/users/{user_id}", response_model=UserOut)
+async def update_user(user_id: str, payload: UserUpdate, actor: dict = Depends(require_admin)):
+    db = get_db()
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        raise HTTPException(404, "Usuário não encontrado")
+
+    # Escopo: gerente só edita quem é da própria empresa
+    if actor["role"] != "superadmin" and target.get("empresa_id") != actor.get("empresa_id"):
+        raise HTTPException(403, "Fora do escopo")
+
+    upd = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+
+    # Regras de segurança:
+    # 1) Só superadmin pode alterar para superadmin ou tirar superadmin
+    if "role" in upd:
+        if upd["role"] not in ("superadmin", "empresa_admin", "usuario_final"):
+            raise HTTPException(400, "Perfil inválido")
+        if actor["role"] != "superadmin" and (upd["role"] == "superadmin" or target.get("role") == "superadmin"):
+            raise HTTPException(403, "Apenas superadmin pode alterar essa função")
+    # 2) Gerente não pode trocar a empresa do usuário
+    if actor["role"] != "superadmin" and "empresa_id" in upd:
+        upd.pop("empresa_id")
+    # 3) Nunca deixar o próprio actor se desativar
+    if user_id == actor.get("id") and upd.get("is_active") is False:
+        raise HTTPException(400, "Você não pode desativar a si mesmo")
+
+    if upd:
+        await db.users.update_one({"id": user_id}, {"$set": upd})
+        await _log_action(actor, "user.update", target=user_id, details={"fields": list(upd.keys())})
+
+    fresh = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    return UserOut(**fresh)
+
+
+@router.post("/users/{user_id}/reset-password")
+async def reset_user_password(user_id: str, payload: PasswordReset, actor: dict = Depends(require_admin)):
+    db = get_db()
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        raise HTTPException(404, "Usuário não encontrado")
+    if actor["role"] != "superadmin" and target.get("empresa_id") != actor.get("empresa_id"):
+        raise HTTPException(403, "Fora do escopo")
+    if actor["role"] != "superadmin" and target.get("role") == "superadmin":
+        raise HTTPException(403, "Apenas superadmin pode resetar senha de superadmin")
+    if len(payload.password) < 6:
+        raise HTTPException(400, "Senha muito curta (mínimo 6 caracteres)")
+
+    await db.users.update_one({"id": user_id}, {"$set": {"password_hash": hash_password(payload.password)}})
+    await _log_action(actor, "user.reset_password", target=user_id)
+    return {"ok": True}
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: str, actor: dict = Depends(require_admin)):
+    db = get_db()
+    target = await db.users.find_one({"id": user_id})
+    if not target:
+        raise HTTPException(404, "Usuário não encontrado")
+    if actor["role"] != "superadmin" and target.get("empresa_id") != actor.get("empresa_id"):
+        raise HTTPException(403, "Fora do escopo")
+    if actor["role"] != "superadmin" and target.get("role") == "superadmin":
+        raise HTTPException(403, "Apenas superadmin pode excluir superadmin")
+    if user_id == actor.get("id"):
+        raise HTTPException(400, "Você não pode excluir a si mesmo")
+
+    await db.users.delete_one({"id": user_id})
+    await _log_action(actor, "user.delete", target=user_id, details={"email": target.get("email")})
+    return {"ok": True}
