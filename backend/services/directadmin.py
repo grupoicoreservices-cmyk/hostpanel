@@ -167,6 +167,66 @@ class DirectAdminClient:
             method="POST",
         )
 
+    # ---------- Catch-all ----------
+    def get_catch_all(self, domain: str) -> dict:
+        """Retorna a config atual do catch-all do domínio.
+
+        DirectAdmin `CMD_API_EMAIL_CATCH_ALL?domain=X` devolve algo tipo
+        `value=user@domain.com` ou `value=:blackhole:` ou `value=:fail:` (ou vazio).
+        Normaliza para `{"mode": "address"|"blackhole"|"fail"|"unset", "value": "…"}`.
+        """
+        try:
+            data = self._request("CMD_API_EMAIL_CATCH_ALL", {"domain": domain})
+        except DirectAdminError:
+            return {"mode": "unset", "value": ""}
+
+        # Pode vir como dict {value: "..."} ou string "value=..."
+        raw = ""
+        if isinstance(data, dict):
+            raw = data.get("value", "") or data.get("catch", "") or ""
+        elif isinstance(data, str):
+            raw = data.strip()
+
+        if not raw:
+            return {"mode": "unset", "value": ""}
+        low = raw.lower()
+        if low.startswith(":blackhole"):
+            return {"mode": "blackhole", "value": ""}
+        if low.startswith(":fail"):
+            return {"mode": "fail", "value": ""}
+        return {"mode": "address", "value": raw}
+
+    def set_catch_all(self, domain: str, mode: str, address: str | None = None) -> dict:
+        """Define o catch-all do domínio.
+
+        `mode`:
+          - `address`  → encaminha para `address` (e-mail válido)
+          - `blackhole`→ descarta silenciosamente
+          - `fail`     → rejeita (bounce)
+          - `unset`    → remove catch-all (fica no comportamento default do DA)
+        """
+        mode = (mode or "").strip().lower()
+        if mode == "address":
+            addr = (address or "").strip()
+            if "@" not in addr:
+                raise DirectAdminError("Endereço de catch-all inválido")
+            value = addr
+        elif mode == "blackhole":
+            value = ":blackhole:"
+        elif mode == "fail":
+            value = ":fail:"
+        elif mode == "unset":
+            value = ""
+        else:
+            raise DirectAdminError(f"Modo de catch-all inválido: {mode!r}")
+
+        params = {
+            "action": "modify" if value else "clear",
+            "domain": domain,
+            "value": value,
+        }
+        return self._request("CMD_API_EMAIL_CATCH_ALL", params, method="POST")
+
     # ---------- Antispam (SpamAssassin per user) ----------
     def get_spam_config(self, domain: str, user: str) -> dict:
         """Retorna a configuração de SpamAssassin para a conta.
