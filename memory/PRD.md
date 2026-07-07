@@ -47,13 +47,23 @@ Construir um Webmail Host SaaS multiempresa/multidomínio integrado a servidores
    - Testing agent iteração 10: **100% pass** (backend 9/9, frontend 100%, retest_needed: False).
 - ✅ **Cleanup (07/07/2026)**: método duplicado `mark_flag` removido de `services/mail.py` (mantido apenas `flag()`).
 - ✅ **Fix EXAMINE Invalid arguments + Splash Carregando (07/07/2026)**: bug crítico de produção onde Dovecot rejeitava EXAMINE `BAD Invalid arguments` toda vez que o webmail carregava. Corrigido com nova função `_safe_folder(name)` em `services/mail.py` que aplica strip + quoting duplo em TODOS os `m.select()` (9 chamadas atualizadas), fallback INBOX para vazios, preserva quotes existentes. Frontend: pastas virtuais `Starred`/`Snoozed` deixaram de disparar chamada backend (fetcher retorna `[]`). Adicionado splash `data-testid="webmail-loading-splash"` na entrada do webmail com "Carregando conteúdo…" + 3 pontinhos animados. `MessageList` agora mostra skeleton com 6 linhas `animate-pulse` durante loading (`keepPreviousData: true` do SWR REMOVIDO — troca de pasta não trava mais com dados antigos). Banner de erro agora tem botão dismiss (`mail-error-dismiss`). Testing_agent iteração 11: **100% pass** backend + frontend.
+- ✅ **Paginação + Contador de não lidas no Webmail (07/07/2026)**:
+   - Backend: `services/mail.py::list_messages` agora aceita `page` (1-based) + `page_size` e retorna envelope `{items, total, page, page_size, unread}`. Fatia a lista IMAP para pegar mensagens mais novas primeiro. Compat retroativa: se `page_size` for None retorna a lista simples (usado por `spam.py` e `routers/webmail.py` legado).
+   - Novo método `MailClient.unread_counts(folders)` que usa IMAP `STATUS folder (MESSAGES UNSEEN)` — leve, sem SELECT — para ler `{folder: {total, unread}}`.
+   - Novo endpoint `GET /api/webmail/folder-counts?folders=INBOX,Sent,...` retornando o dict de contagens em uma única conexão IMAP.
+   - Frontend `Webmail.jsx`: novo estado `page` + `pageSize` (persistido em localStorage `voxyra:mail-page-size`, default 20). SWR duplo: uma key para mensagens paginadas (`[mail-messages, folder, search, page, pageSize]`) e outra para contadores (`[mail-folder-counts]`, revalida a cada 90s). Ao trocar pasta ou busca, `page` volta para 1.
+   - Frontend `Sidebar.jsx`: aceita `folderCounts` prop, renderiza badge azul com o número de não lidas ao lado de cada pasta (testid `folder-unread-<folder>`). Zero-count esconde o badge para não poluir.
+   - Frontend `MessageList.jsx`: novo rodapé fixo (`mail-pagination`) com dropdown `mail-page-size` (10/20/30/50/100), texto "X-Y de Z", e controles `pagination-first/prev/next/last` + botões `pagination-page-N` com janela compacta (`1 … p-1 p p+1 … total`). Total badge no header (`mail-total-count`).
+   - Regressão: `routers/spam.py` (2 chamadas) atualizado para desembrulhar `result["items"]` do novo retorno.
+   - Testes: 5 pytest unit tests em `/app/backend/tests/test_mail_pagination.py` cobrindo envelope, segunda página, out-of-range, unread_counts e flag por mensagem — 100% pass. Testing_agent iteração 12: **100% pass** (backend 6/6, frontend surface visível ok).
 
 ## Backlog priorizado (P1)
 - Upload / download de anexos reais (multipart) no compose e reading pane.
 - Filtros e regras antispam (persistidas por usuário).
 - Assinatura por usuário (armazenamento e injeção no compose).
 - Vacation/autoresponder wired na UI usando `CMD_API_EMAIL_VACATION`.
-- Paginação IMAP + threading de conversas.
+- SSE/IDLE para notificações em tempo real de novas mensagens.
+- Threading de conversas.
 - Export CSV das listas admin.
 
 ## Backlog (P2)
