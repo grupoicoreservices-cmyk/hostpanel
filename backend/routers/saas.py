@@ -211,8 +211,109 @@ async def create_domain(payload: DomainCreate, user: dict = Depends(require_admi
     doc = {"id": new_id(), **payload.model_dump(), "created_at": now_iso()}
     await db.domains.insert_one(doc)
     await _log_action(user, "domain.create", target=doc["id"], details={"nome": doc["nome"]})
+
+    # Auto-sincroniza contas de e-mail se um servidor DirectAdmin foi vinculado
+    imported = 0
+    if doc.get("directadmin_server_id"):
+        try:
+            imported = await _sync_domain_accounts(db, doc["id"], actor=user)
+        except Exception:
+            imported = 0
+
     doc.pop("_id", None)
-    return DomainOut(**doc, contas_count=0)
+    return DomainOut(**doc, contas_count=imported)
+
+
+@router.post("/dominios/{domain_id}/sync")
+async def sync_domain(domain_id: str, user: dict = Depends(require_admin)):
+    """Puxa todas as contas de e-mail já existentes no DirectAdmin
+    para este domínio e cadastra/atualiza localmente."""
+    db = get_db()
+    d = await db.domains.find_one({"id": domain_id})
+    if not d:
+        raise HTTPException(404, "Domínio não encontrado")
+    if user["role"] != "superadmin" and d.get("empresa_id") != user.get("empresa_id"):
+        raise HTTPException(403, "Fora do escopo")
+    if not d.get("directadmin_server_id"):
+        raise HTTPException(400, "Domínio não está vinculado a um servidor DirectAdmin")
+
+    try:
+        imported = await _sync_domain_accounts(db, domain_id, actor=user)
+    except DirectAdminError as e:
+        raise HTTPException(502, f"Falha ao consultar DirectAdmin: {e}")
+
+    return {
+        "ok": True,
+        "domain": d["nome"],
+        "imported_or_updated": imported,
+    }
+
+
+async def _sync_domain_accounts(db, domain_id: str, actor: dict | None = None) -> int:
+    """Sincroniza as contas de e-mail do DirectAdmin para o Voxyra Mail.
+    Retorna quantas contas foram criadas ou atualizadas.
+
+    Regra:
+      - Se a conta ainda não existir localmente, cria com password_enc vazio
+        (o admin precisará resetar a senha para o usuário conseguir logar no webmail).
+      - Se já existir, atualiza quota e uso.
+    """
+    d = await db.domains.find_one({"id": domain_id})
+    if not d:
+        return 0
+    server = await db.directadmin_servers.find_one({"id": d.get("directadmin_server_id")})
+    if not server:
+        return 0
+
+    token = decrypt(server.get("api_token", ""))
+    client = DirectAdminClient(server["url"], server["port"], server["api_user"], token, server.get("ssl", True))
+    remote_accounts = client.list_email_accounts(d["nome"])
+
+    count = 0
+    for acc in remote_accounts:
+        local_part = acc.get("user") or acc.get("email") or ""
+        if not local_part:
+            continue
+        email = local_part if "@" in local_part else f"{local_part}@{d['nome']}"
+
+        # quota e usage podem vir em MB, KB ou bytes dependendo da versão do DA
+        quota_raw = acc.get("quota") or acc.get("quotabytes") or 0
+        used_raw = acc.get("usage") or acc.get("used") or 0
+        try:
+            quota_mb = int(float(quota_raw)) if quota_raw else 1024
+        except (TypeError, ValueError):
+            quota_mb = 1024
+        try:
+            used_mb = float(used_raw) if used_raw else 0.0
+        except (TypeError, ValueError):
+            used_mb = 0.0
+
+        existing = await db.email_accounts.find_one({"dominio_id": domain_id, "email": email})
+        if existing:
+            await db.email_accounts.update_one(
+                {"id": existing["id"]},
+                {"$set": {"quota_mb": quota_mb, "used_mb": used_mb}},
+            )
+        else:
+            await db.email_accounts.insert_one({
+                "id": new_id(),
+                "email": email,
+                "dominio_id": domain_id,
+                "empresa_id": d["empresa_id"],
+                "quota_mb": quota_mb,
+                "used_mb": used_mb,
+                "status": "ativo",
+                "password_enc": "",  # importada — precisa reset via UI para webmail funcionar
+                "created_at": now_iso(),
+            })
+        count += 1
+
+    if actor is not None:
+        await _log_action(
+            actor, "domain.sync", target=domain_id,
+            details={"domain": d["nome"], "imported_or_updated": count},
+        )
+    return count
 
 
 @router.delete("/dominios/{domain_id}")

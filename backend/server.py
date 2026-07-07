@@ -15,6 +15,7 @@ from auth import router as auth_router, seed_superadmin
 from routers.saas import router as saas_router
 from routers.webmail import router as webmail_router
 from routers.monitoring import router as monitoring_router
+from routers.antispam import router as antispam_router
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -63,6 +64,7 @@ app.include_router(auth_router)
 app.include_router(saas_router)
 app.include_router(webmail_router)
 app.include_router(monitoring_router)
+app.include_router(antispam_router)
 
 
 # ---------- Startup ----------

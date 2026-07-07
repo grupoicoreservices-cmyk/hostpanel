@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Globe, X } from "lucide-react";
+import { Plus, Trash2, Globe, X, RefreshCw } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { ADMIN } from "@/lib/testIds";
 
@@ -11,6 +11,7 @@ export default function AdminDomains() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ nome: "", empresa_id: "", directadmin_server_id: "" });
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -27,14 +28,29 @@ export default function AdminDomains() {
   const save = async () => {
     setSaving(true);
     try {
-      await api.post("/dominios", {
+      const { data } = await api.post("/dominios", {
         ...form,
         directadmin_server_id: form.directadmin_server_id || null,
       });
-      toast.success("Domínio criado");
+      if (data.contas_count > 0) {
+        toast.success(`Domínio criado — ${data.contas_count} conta(s) importada(s) do DirectAdmin`);
+      } else {
+        toast.success("Domínio criado");
+      }
       setShowForm(false); setForm({ nome: "", empresa_id: "", directadmin_server_id: "" }); load();
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
     finally { setSaving(false); }
+  };
+
+  const doSync = async (id) => {
+    setSyncing(id);
+    try {
+      const { data } = await api.post(`/dominios/${id}/sync`);
+      toast.success(`${data.imported_or_updated} conta(s) sincronizada(s) do ${data.domain}`);
+      load();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally { setSyncing(null); }
   };
 
   const del = async (id) => {
@@ -79,7 +95,18 @@ export default function AdminDomains() {
                 <td className="px-4 py-3 text-muted-foreground">{empresaName(r.empresa_id)}</td>
                 <td className="px-4 py-3 text-muted-foreground">{serverName(r.directadmin_server_id)}</td>
                 <td className="px-4 py-3 text-center">{r.contas_count}</td>
-                <td className="px-4 py-3 text-right">
+                <td className="px-4 py-3 text-right flex justify-end gap-1">
+                  {r.directadmin_server_id && (
+                    <button
+                      data-testid={`admin-sync-domain-${r.id}`}
+                      onClick={() => doSync(r.id)}
+                      disabled={syncing === r.id}
+                      className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors disabled:opacity-50"
+                      title="Sincronizar contas do DirectAdmin"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${syncing === r.id ? "animate-spin" : ""}`}/>
+                    </button>
+                  )}
                   <button data-testid={`${ADMIN.deleteRow}domain-${r.id}`} onClick={() => del(r.id)} className="p-1.5 rounded-md hover:bg-destructive/10 text-destructive"><Trash2 className="w-4 h-4"/></button>
                 </td>
               </tr>

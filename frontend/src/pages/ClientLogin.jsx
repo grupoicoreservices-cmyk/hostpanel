@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { Mail, Lock, ArrowRight, ArrowLeft, Shield, Sparkles } from "lucide-react";
+import { Mail, Lock, ArrowRight, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/context/AuthContext";
 import { formatApiErrorDetail } from "@/lib/api";
 import { AUTH } from "@/lib/testIds";
 
-export default function Login() {
+/** Login exclusivo do cliente final — sem menções a admin/SaaS. */
+export default function ClientLogin() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -22,8 +23,8 @@ export default function Login() {
     try {
       const u = await login(email.trim(), password);
       toast.success(`Bem-vindo, ${u.name || u.email}`);
-      if (u.role === "superadmin" || u.role === "empresa_admin") navigate("/admin/dashboard");
-      else navigate("/mail");
+      // Cliente sempre para /mail; admin também pode acessar
+      navigate("/mail");
     } catch (e) {
       const msg = formatApiErrorDetail(e.response?.data?.detail) || e.message;
       setError(msg);
@@ -35,40 +36,33 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex bg-background">
-      {/* Left brand pane */}
+      {/* Left visual pane */}
       <div className="hidden lg:flex flex-col justify-between w-1/2 relative overflow-hidden bg-gradient-to-br from-blue-600 via-blue-700 to-slate-900 text-white p-12">
         <div className="absolute inset-0 opacity-20"
-             style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(255,255,255,.3) 0, transparent 50%), radial-gradient(circle at 80% 80%, rgba(255,255,255,.15) 0, transparent 50%)" }} />
+             style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(255,255,255,.3) 0, transparent 50%), radial-gradient(circle at 80% 80%, rgba(255,255,255,.15) 0, transparent 50%)" }}/>
         <div className="relative z-10 flex items-center gap-3">
           <div className="h-11 w-11 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center">
-            <Shield className="w-6 h-6" />
+            <Mail className="w-6 h-6"/>
           </div>
           <div>
-            <div className="font-display text-2xl font-bold tracking-tight">Voxyra Console</div>
-            <div className="text-xs text-blue-100/80">Administração SaaS</div>
+            <div className="font-display text-2xl font-bold tracking-tight">Voxyra Webmail</div>
+            <div className="text-xs text-blue-100/80">Sua caixa postal profissional</div>
           </div>
         </div>
 
         <div className="relative z-10 space-y-6">
           <h1 className="font-display text-4xl xl:text-5xl font-bold tracking-tight leading-[1.05]">
-            Painel administrativo,<br/>
-            <span className="text-blue-200">multi-empresa e</span><br/>
-            pronto para produção.
+            E-mail rápido,<br/>
+            <span className="text-blue-200">seguro e</span><br/>
+            sempre online.
           </h1>
           <p className="text-blue-100/80 max-w-md">
-            Gerencie empresas, domínios, contas de e-mail, servidores DirectAdmin, antispam e monitoramento em um só lugar.
+            Toda a caixa postal do seu domínio na palma da mão — desktop e mobile.
           </p>
-          <div className="flex items-center gap-4 text-sm text-blue-100">
-            <div className="flex items-center gap-2"><Sparkles className="w-4 h-4"/> Multi-empresa</div>
-            <div className="h-1 w-1 rounded-full bg-blue-300/50" />
-            <div>Antispam</div>
-            <div className="h-1 w-1 rounded-full bg-blue-300/50" />
-            <div>DirectAdmin</div>
-          </div>
         </div>
 
         <div className="relative z-10 text-xs text-blue-100/60">
-          © {new Date().getFullYear()} Voxyra — Todos os direitos reservados.
+          © {new Date().getFullYear()} Voxyra
         </div>
       </div>
 
@@ -81,27 +75,27 @@ export default function Login() {
 
           <div className="lg:hidden flex items-center gap-3 mb-8">
             <div className="h-10 w-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center">
-              <Shield className="w-5 h-5" />
+              <Mail className="w-5 h-5"/>
             </div>
-            <div className="font-display font-bold text-xl">Voxyra Console</div>
+            <div className="font-display font-bold text-xl">Voxyra Webmail</div>
           </div>
-          <h2 className="font-display text-3xl font-bold tracking-tight">Console administrativo</h2>
+
+          <h2 className="font-display text-3xl font-bold tracking-tight">Entrar no webmail</h2>
           <p className="text-muted-foreground mt-2 text-sm">
-            Área restrita a superadmins e admins de empresa.
+            Use seu e-mail e senha da caixa postal.
           </p>
 
           <form onSubmit={submit} className="mt-8 space-y-4">
             <label className="block">
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">E-mail</span>
               <div className="mt-1 relative">
-                <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"/>
                 <input
                   data-testid={AUTH.loginEmail}
-                  type="email"
-                  required
+                  type="email" required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="voce@empresa.com"
+                  placeholder="voce@empresa.com.br"
                   className="w-full pl-10 pr-3 py-3 rounded-xl border border-border bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                 />
               </div>
@@ -110,11 +104,10 @@ export default function Login() {
             <label className="block">
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Senha</span>
               <div className="mt-1 relative">
-                <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"/>
                 <input
                   data-testid={AUTH.loginPassword}
-                  type="password"
-                  required
+                  type="password" required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
@@ -131,24 +124,15 @@ export default function Login() {
 
             <button
               data-testid={AUTH.loginSubmit}
-              type="submit"
-              disabled={loading}
+              type="submit" disabled={loading}
               className="w-full inline-flex items-center justify-center gap-2 bg-primary text-primary-foreground rounded-xl py-3 font-semibold shadow-sm hover:bg-blue-700 active:scale-[.98] transition-all disabled:opacity-60"
             >
-              {loading ? "Entrando…" : (<>Entrar <ArrowRight className="w-4 h-4"/></>)}
+              {loading ? "Entrando…" : (<>Entrar no webmail <ArrowRight className="w-4 h-4"/></>)}
             </button>
           </form>
 
-          {process.env.REACT_APP_SHOW_DEV_HINT === "true" && (
-            <div className="mt-8 text-xs text-muted-foreground border border-dashed border-border rounded-lg p-3">
-              <div className="font-semibold text-foreground mb-1">Credenciais de teste (superadmin)</div>
-              E-mail: <code className="font-mono">admin@voxyra.com</code><br/>
-              Senha: <code className="font-mono">Voxyra@2026</code>
-            </div>
-          )}
-
           <div className="mt-6 text-xs text-muted-foreground text-center">
-            É cliente final? <Link to="/webmail/login" className="text-primary hover:underline font-semibold">Acessar o webmail</Link>
+            É administrador? <Link to="/login" className="text-primary hover:underline font-semibold">Acessar o console</Link>
           </div>
         </div>
       </div>

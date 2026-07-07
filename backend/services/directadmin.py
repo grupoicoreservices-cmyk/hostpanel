@@ -140,3 +140,118 @@ class DirectAdminClient:
             {"action": "delete", "domain": domain, "select0": user},
             method="POST",
         )
+
+    # ---------- Antispam (SpamAssassin per user) ----------
+    def get_spam_config(self, domain: str, user: str) -> dict:
+        """Retorna a configuração de SpamAssassin para a conta.
+
+        DirectAdmin CMD_API_EMAIL_SPAMASSASSIN action=view retorna campos como
+        is_on, high_score, subject_tag, use_bayes, use_razor, etc.
+        Devolve um dict normalizado para o Voxyra Mail.
+        """
+        try:
+            data = self._request(
+                "CMD_API_EMAIL_SPAMASSASSIN",
+                {"action": "view", "domain": domain, "user": user},
+            )
+        except DirectAdminError:
+            return {"enabled": False, "kill_score": None, "subject_tag": None,
+                    "use_bayes": False, "use_razor": False, "available": False}
+
+        if not isinstance(data, dict):
+            return {"enabled": False, "available": False}
+
+        def _y(k, default=False):
+            v = data.get(k, "")
+            if isinstance(v, bool):
+                return v
+            return str(v).lower() in ("yes", "on", "1", "true", "ON")
+
+        def _num(k):
+            v = data.get(k, "")
+            try:
+                return float(v) if v not in ("", None) else None
+            except (TypeError, ValueError):
+                return None
+
+        return {
+            "enabled": _y("is_on"),
+            "kill_score": _num("high_score") or _num("kill_score"),
+            "subject_tag": data.get("subject_tag") or data.get("rewrite_subject") or "***SPAM***",
+            "use_bayes": _y("use_bayes"),
+            "use_razor": _y("use_razor"),
+            "available": True,
+            "raw": data,
+        }
+
+    def set_spam_config(self, domain: str, user: str, *, enabled: bool | None = None,
+                        kill_score: float | None = None, subject_tag: str | None = None,
+                        use_bayes: bool | None = None, use_razor: bool | None = None) -> dict:
+        params = {"action": "save", "domain": domain, "user": user}
+        if enabled is not None:
+            params["is_on"] = "ON" if enabled else "OFF"
+        if kill_score is not None:
+            params["high_score"] = str(kill_score)
+        if subject_tag is not None:
+            params["subject_tag"] = subject_tag
+        if use_bayes is not None:
+            params["use_bayes"] = "ON" if use_bayes else "OFF"
+        if use_razor is not None:
+            params["use_razor"] = "ON" if use_razor else "OFF"
+        return self._request("CMD_API_EMAIL_SPAMASSASSIN", params, method="POST")
+
+    def get_blacklist(self, domain: str, user: str) -> list[str]:
+        try:
+            data = self._request(
+                "CMD_API_EMAIL_SPAMASSASSIN_BLACKLIST",
+                {"action": "list", "domain": domain, "user": user},
+            )
+        except DirectAdminError:
+            return []
+        if isinstance(data, list):
+            return [str(x) for x in data if x]
+        if isinstance(data, dict):
+            return list(data.values()) if data else []
+        return []
+
+    def add_blacklist(self, domain: str, user: str, address: str) -> dict:
+        return self._request(
+            "CMD_API_EMAIL_SPAMASSASSIN_BLACKLIST",
+            {"action": "add", "domain": domain, "user": user, "email": address},
+            method="POST",
+        )
+
+    def remove_blacklist(self, domain: str, user: str, address: str) -> dict:
+        return self._request(
+            "CMD_API_EMAIL_SPAMASSASSIN_BLACKLIST",
+            {"action": "delete", "domain": domain, "user": user, "select0": address},
+            method="POST",
+        )
+
+    def get_whitelist(self, domain: str, user: str) -> list[str]:
+        try:
+            data = self._request(
+                "CMD_API_EMAIL_SPAMASSASSIN_WHITELIST",
+                {"action": "list", "domain": domain, "user": user},
+            )
+        except DirectAdminError:
+            return []
+        if isinstance(data, list):
+            return [str(x) for x in data if x]
+        if isinstance(data, dict):
+            return list(data.values()) if data else []
+        return []
+
+    def add_whitelist(self, domain: str, user: str, address: str) -> dict:
+        return self._request(
+            "CMD_API_EMAIL_SPAMASSASSIN_WHITELIST",
+            {"action": "add", "domain": domain, "user": user, "email": address},
+            method="POST",
+        )
+
+    def remove_whitelist(self, domain: str, user: str, address: str) -> dict:
+        return self._request(
+            "CMD_API_EMAIL_SPAMASSASSIN_WHITELIST",
+            {"action": "delete", "domain": domain, "user": user, "select0": address},
+            method="POST",
+        )

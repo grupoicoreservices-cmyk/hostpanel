@@ -6,6 +6,8 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { PrefsProvider } from "@/context/PrefsContext";
 
 import Login from "@/pages/Login";
+import ClientLogin from "@/pages/ClientLogin";
+import Landing from "@/pages/Landing";
 import Webmail from "@/pages/Webmail";
 import AdminLayout from "@/components/admin/AdminLayout";
 import AdminDashboard from "@/pages/admin/Dashboard";
@@ -16,6 +18,7 @@ import AdminAccounts from "@/pages/admin/Accounts";
 import AdminLogs from "@/pages/admin/Logs";
 import AdminUsers from "@/pages/admin/Users";
 import AdminMonitoring from "@/pages/admin/Monitoring";
+import AdminAntispam from "@/pages/admin/Antispam";
 
 function Protected({ children, roles }) {
   const { user, ready } = useAuth();
@@ -34,7 +37,7 @@ function Protected({ children, roles }) {
 function DefaultRedirect() {
   const { user, ready } = useAuth();
   if (!ready) return null;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Landing />;
   if (user.role === "superadmin" || user.role === "empresa_admin")
     return <Navigate to="/admin/dashboard" replace />;
   return <Navigate to="/mail" replace />;
@@ -49,6 +52,8 @@ export default function App() {
           <Routes>
             <Route path="/" element={<DefaultRedirect />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/webmail" element={<ClientLogin />} />
+            <Route path="/webmail/login" element={<ClientLogin />} />
 
             <Route path="/mail" element={<Protected><Webmail /></Protected>} />
 
@@ -68,6 +73,7 @@ export default function App() {
               <Route path="contas" element={<AdminAccounts />} />
               <Route path="usuarios" element={<AdminUsers />} />
               <Route path="monitoramento" element={<AdminMonitoring />} />
+              <Route path="antispam" element={<AdminAntispam />} />
               <Route path="logs" element={<AdminLogs />} />
             </Route>
 

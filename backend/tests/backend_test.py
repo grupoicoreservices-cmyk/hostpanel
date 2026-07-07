@@ -268,6 +268,17 @@ class TestSaaSFlow:
                     json={"nome": "denied.example.com", "empresa_id": extra_id})
         assert r.status_code == 403
 
+    def test_h_domain_sync_invalid_and_no_da(self):
+        s = TestSaaSFlow.session_data["session"]
+        # invalid domain id -> 404
+        r = s.post(f"{BASE_URL}/api/dominios/does-not-exist-xyz/sync")
+        assert r.status_code == 404, r.text
+        # existing domain without directadmin_server_id -> 400
+        dom_id = TestSaaSFlow.session_data["domain"]
+        r = s.post(f"{BASE_URL}/api/dominios/{dom_id}/sync")
+        assert r.status_code == 400, r.text
+        assert "DirectAdmin" in r.json().get("detail", "")
+
     def test_z_cleanup(self):
         s = TestSaaSFlow.session_data["session"]
         d = TestSaaSFlow.session_data
@@ -282,3 +293,62 @@ class TestSaaSFlow:
             assert r.status_code == 200
         if d.get("extra_empresa"):
             s.delete(f"{BASE_URL}/api/empresas/{d['extra_empresa']}")
+
+
+# ---- NEW: Antispam Center ----
+CLIENT_EMAIL = "cliente.demo@voxyra.com"
+CLIENT_PASSWORD = "Cliente@2026"
+
+
+class TestAntispam:
+    def test_summary_requires_auth(self):
+        r = requests.get(f"{BASE_URL}/api/antispam/summary")
+        assert r.status_code == 401
+
+    def test_usuario_final_forbidden(self):
+        s = requests.Session()
+        r = s.post(f"{BASE_URL}/api/auth/login",
+                   json={"email": CLIENT_EMAIL, "password": CLIENT_PASSWORD})
+        if r.status_code != 200:
+            pytest.skip(f"cliente.demo login failed: {r.status_code} {r.text}")
+        r = s.get(f"{BASE_URL}/api/antispam/summary")
+        assert r.status_code == 403, f"got {r.status_code}: {r.text}"
+
+    def test_summary_admin(self):
+        s = _admin_login()
+        r = s.get(f"{BASE_URL}/api/antispam/summary")
+        assert r.status_code == 200, r.text
+        data = r.json()
+        for k in ("total_accounts", "enabled_accounts", "disabled_accounts",
+                  "unknown_accounts", "total_domains", "spam_blocked_7d"):
+            assert k in data, f"missing {k}"
+
+    def test_accounts_admin(self):
+        s = _admin_login()
+        r = s.get(f"{BASE_URL}/api/antispam/accounts")
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_sync_all_no_da(self):
+        s = _admin_login()
+        r = s.post(f"{BASE_URL}/api/antispam/sync")
+        assert r.status_code == 200, r.text
+        d = r.json()
+        for k in ("domains", "accounts_total", "accounts_synced"):
+            assert k in d
+
+    def test_get_invalid_account_404(self):
+        s = _admin_login()
+        r = s.get(f"{BASE_URL}/api/antispam/accounts/does-not-exist")
+        assert r.status_code == 404
+
+    def test_put_invalid_account_404(self):
+        s = _admin_login()
+        r = s.put(f"{BASE_URL}/api/antispam/accounts/does-not-exist",
+                  json={"enabled": True, "kill_score": 5})
+        assert r.status_code == 404
+
+    def test_blacklist_invalid_account_404(self):
+        s = _admin_login()
+        r = s.get(f"{BASE_URL}/api/antispam/accounts/does-not-exist/blacklist")
+        assert r.status_code == 404
