@@ -20,6 +20,24 @@ from typing import Optional, Tuple
 from datetime import datetime, timezone
 
 
+def _safe_folder(name: str | None) -> str:
+    """Retorna o nome do mailbox pronto para o `imaplib.select`, quoted e sem lixo.
+
+    Alguns servidores IMAP (Dovecot em especial) respondem `BAD Invalid arguments`
+    para EXAMINE quando o nome vem sem quotes ou contém espaço/UTF-8. Sempre
+    envolver em aspas duplas é o comportamento seguro. Também remove
+    espaços em branco extras e rejeita valores vazios (fallback INBOX).
+    """
+    n = (name or "").strip()
+    if not n:
+        n = "INBOX"
+    # Já vem entre aspas? preserve.
+    if n.startswith('"') and n.endswith('"'):
+        return n
+    # Escape para não quebrar as aspas
+    return '"' + n.replace('"', r'\"') + '"'
+
+
 FOLDER_MAP = {
     "INBOX": "Entrada",
     "Sent": "Enviados",
@@ -119,7 +137,7 @@ class MailClient:
     def list_messages(self, folder: str = "INBOX", limit: int = 50, search: str | None = None) -> list[dict]:
         m = self._imap()
         try:
-            m.select(folder, readonly=True)
+            m.select(_safe_folder(folder), readonly=True)
             criteria = "ALL"
             if search:
                 # naive text search across subject / from / body
@@ -178,7 +196,7 @@ class MailClient:
     def get_message(self, uid: str, folder: str = "INBOX") -> dict:
         m = self._imap()
         try:
-            m.select(folder)
+            m.select(_safe_folder(folder))
             typ, data = m.fetch(uid.encode() if isinstance(uid, str) else uid, "(RFC822)")
             if typ != "OK" or not data or not data[0]:
                 raise MailError("Mensagem não encontrada")
@@ -267,7 +285,7 @@ class MailClient:
         m = self._imap()
         moved = 0
         try:
-            m.select(src_folder)
+            m.select(_safe_folder(src_folder))
             for uid in uids:
                 try:
                     m.copy(uid, dst_folder)
@@ -287,12 +305,14 @@ class MailClient:
         """Adiciona ou remove uma flag IMAP (ex: \\Seen, \\Flagged, \\Deleted)."""
         m = self._imap()
         try:
-            m.select(folder)
+            m.select(_safe_folder(folder))
             op = "+FLAGS" if add else "-FLAGS"
             m.store(uid, op, flag)
         finally:
-            try: m.logout()
-            except Exception: pass
+            try:
+                m.logout()
+            except Exception:
+                pass
 
 
     def bulk_delete(self, uids: list[str], folder: str) -> int:
@@ -301,7 +321,7 @@ class MailClient:
         m = self._imap()
         deleted = 0
         try:
-            m.select(folder)
+            m.select(_safe_folder(folder))
             for uid in uids:
                 try:
                     m.store(uid, "+FLAGS", "\\Deleted")
@@ -319,7 +339,7 @@ class MailClient:
     def folder_count(self, folder: str) -> int:
         m = self._imap()
         try:
-            typ, data = m.select(folder, readonly=True)
+            typ, data = m.select(_safe_folder(folder), readonly=True)
             if typ != "OK":
                 return 0
             try:
@@ -337,7 +357,7 @@ class MailClient:
     def move_message(self, uid: str, src_folder: str, dst_folder: str) -> None:
         m = self._imap()
         try:
-            m.select(src_folder)
+            m.select(_safe_folder(src_folder))
             m.copy(uid, dst_folder)
             m.store(uid, "+FLAGS", "\\Deleted")
             m.expunge()
@@ -350,7 +370,7 @@ class MailClient:
     def delete_message(self, uid: str, folder: str = "INBOX") -> None:
         m = self._imap()
         try:
-            m.select(folder)
+            m.select(_safe_folder(folder))
             m.store(uid, "+FLAGS", "\\Deleted")
             m.expunge()
         finally:

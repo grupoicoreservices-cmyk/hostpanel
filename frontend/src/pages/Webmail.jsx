@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, Sun, Moon, LayoutPanelLeft, LayoutPanelTop, HelpCircle, Settings, ArrowLeft, AlertCircle } from "lucide-react";
+import { Search, Sun, Moon, LayoutPanelLeft, LayoutPanelTop, HelpCircle, Settings, ArrowLeft, AlertCircle, Mail } from "lucide-react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import useSWR from "swr";
 
@@ -18,8 +18,11 @@ import { usePrefs } from "@/context/PrefsContext";
 import { toast } from "sonner";
 
 
-/** Fetcher SWR: escolhe o endpoint certo por pasta. */
+/** Fetcher SWR: escolhe o endpoint certo por pasta. Pastas virtuais que
+ *  não existem no IMAP (Starred, Snoozed) devolvem [] sem chamar o backend. */
+const VIRTUAL_FOLDERS = new Set(["Starred", "Snoozed"]);
 const messagesFetcher = async ([folder, search]) => {
+  if (VIRTUAL_FOLDERS.has(folder)) return [];
   if (folder === "Junk" || folder === "Spam") {
     const { data } = await api.get("/spam/messages", {
       params: { limit: 100, search: search || undefined },
@@ -44,6 +47,8 @@ export default function Webmail() {
   const [composing, setComposing] = useState(false);
   const [composeInitial, setComposeInitial] = useState({});
   const [stats, setStats] = useState({});
+  // Loader de entrada no webmail (aparece na 1ª carga de mensagens)
+  const [firstLoadDone, setFirstLoadDone] = useState(false);
 
   const isAdmin = user?.role === "superadmin" || user?.role === "empresa_admin";
   const isSpamFolder = folder === "Junk" || folder === "Spam";
@@ -54,7 +59,9 @@ export default function Webmail() {
     return () => clearTimeout(t);
   }, [search]);
 
-  // SWR cache: mantém dados por pasta+busca; revalida em focus e a cada 60s
+  // SWR cache: mantém dados por pasta+busca; revalida em focus e a cada 60s.
+  // NÃO usa keepPreviousData — ao trocar de pasta queremos ver "Carregando"
+  // imediatamente ao invés dos dados antigos da pasta anterior.
   const swrKey = user ? ["mail-messages", folder, searchDebounced] : null;
   const { data: rawMessages, isLoading, isValidating, mutate, error } = useSWR(
     swrKey,
@@ -64,15 +71,21 @@ export default function Webmail() {
       revalidateIfStale: true,
       dedupingInterval: 20_000,
       refreshInterval: 60_000,
-      keepPreviousData: true,
     }
   );
+
+  // Marca fim da primeira carga (para o splash sumir)
+  useEffect(() => {
+    if (rawMessages !== undefined || error) setFirstLoadDone(true);
+  }, [rawMessages, error]);
 
   const messages = useMemo(() => Array.isArray(rawMessages) ? rawMessages : [], [rawMessages]);
   const errorDetail = useMemo(
     () => error ? (formatApiErrorDetail(error.response?.data?.detail) || error.message) : null,
     [error]
   );
+  const [errorDismissed, setErrorDismissed] = useState(false);
+  useEffect(() => { setErrorDismissed(false); }, [folder, searchDebounced]);
 
   // Stats admin
   useEffect(() => {
@@ -203,6 +216,29 @@ export default function Webmail() {
   const vertical = prefs.view_mode === "vertical";
   const loading = isLoading || (isValidating && !rawMessages);
 
+  // Splash de entrada: enquanto a primeira coleta de mensagens não termina,
+  // mostra tela full-screen com feedback claro.
+  if (!firstLoadDone) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-background" data-testid="webmail-loading-splash">
+        <div className="text-center max-w-sm px-6">
+          <div className="mx-auto mb-4 h-14 w-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
+            <Mail className="w-7 h-7 animate-pulse" />
+          </div>
+          <div className="font-display text-2xl font-bold tracking-tight">Carregando conteúdo…</div>
+          <div className="text-sm text-muted-foreground mt-1.5">
+            Estamos buscando suas mensagens no servidor. Só um instante.
+          </div>
+          <div className="mt-6 flex justify-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "0ms" }} />
+            <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "150ms" }} />
+            <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "300ms" }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-full flex overflow-hidden bg-background">
       <Sidebar
@@ -280,13 +316,21 @@ export default function Webmail() {
         {isAdmin && <StatsBar stats={stats} />}
 
         {/* Banner de erro (IMAP inacessível, senha faltando etc) */}
-        {errorDetail && !loading && (
+        {errorDetail && !loading && !errorDismissed && (
           <div className="px-6 py-2 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-900 flex items-start gap-2 text-xs">
             <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5"/>
-            <div className="text-amber-900 dark:text-amber-200">
+            <div className="flex-1 text-amber-900 dark:text-amber-200">
               <strong>Não foi possível carregar mensagens do servidor:</strong> {errorDetail}
               <button onClick={() => mutate()} className="ml-2 underline hover:no-underline">Tentar novamente</button>
             </div>
+            <button
+              data-testid="mail-error-dismiss"
+              onClick={() => setErrorDismissed(true)}
+              className="text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 flex-shrink-0"
+              title="Dispensar aviso"
+            >
+              ×
+            </button>
           </div>
         )}
 

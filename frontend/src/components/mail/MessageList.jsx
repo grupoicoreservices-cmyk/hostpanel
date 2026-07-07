@@ -108,10 +108,30 @@ export default function MessageList({
 
       {/* Message list */}
       <div className="flex-1 overflow-y-auto voxyra-scroll">
-        {loading && messages.length === 0 && (
-          <div className="p-8 text-center text-sm text-muted-foreground">Carregando mensagens…</div>
+        {loading && (
+          <div className="p-6 text-center" data-testid="messagelist-loading">
+            <div className="inline-flex items-center gap-2 text-sm text-muted-foreground mb-4">
+              <RefreshCw className="w-4 h-4 animate-spin text-primary" />
+              Carregando mensagens…
+            </div>
+            {/* Skeleton rows enquanto a lista real não chega */}
+            <ul className="text-left">
+              {[...Array(6)].map((_, i) => (
+                <li key={i} className="px-4 py-3 border-b border-border flex items-start gap-3 animate-pulse">
+                  <div className="w-3.5 h-3.5 mt-1 rounded bg-muted flex-shrink-0" />
+                  <div className="w-4 h-4 mt-0.5 rounded bg-muted flex-shrink-0" />
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <div className="h-3 bg-muted rounded w-1/3" />
+                    <div className="h-3 bg-muted rounded w-4/5" />
+                    <div className="h-2.5 bg-muted/60 rounded w-3/5" />
+                  </div>
+                  <div className="w-10 h-3 bg-muted rounded flex-shrink-0" />
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
-        {empty && (
+        {empty && !loading && (
           <div className="p-12 text-center">
             <AlertCircle className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
             <div className="text-sm font-semibold text-foreground">Sem mensagens nesta pasta</div>
