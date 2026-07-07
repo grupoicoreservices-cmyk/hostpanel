@@ -14,7 +14,7 @@ const FOLDERS = [
   { id: "Archive",  label: "Arquivo",         icon: Archive,     color: "text-emerald-500" },
 ];
 
-export default function Sidebar({ activeFolder, onFolderChange, onCompose, empresas = [] }) {
+export default function Sidebar({ activeFolder, onFolderChange, onCompose, empresas = [], folderCounts = {} }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const isAdmin = user?.role === "superadmin" || user?.role === "empresa_admin";
@@ -49,6 +49,8 @@ export default function Sidebar({ activeFolder, onFolderChange, onCompose, empre
           {FOLDERS.map((f) => {
             const Icon = f.icon;
             const active = activeFolder === f.id;
+            const unread = folderCounts?.[f.id]?.unread || 0;
+            const showBadge = unread > 0;
             return (
               <li key={f.id}>
                 <button
@@ -61,10 +63,15 @@ export default function Sidebar({ activeFolder, onFolderChange, onCompose, empre
                   }`}
                 >
                   <Icon className={`w-4 h-4 transition-transform ${active ? "text-primary" : `${f.color} group-hover:scale-110`}`} />
-                  <span className="flex-1 text-left">{f.label}</span>
-                  {f.badge != null && (
-                    <span className={`text-[11px] font-semibold ${active ? "text-primary" : "text-muted-foreground"}`}>
-                      {f.badge}
+                  <span className={`flex-1 text-left ${showBadge && !active ? "font-semibold" : ""}`}>{f.label}</span>
+                  {showBadge && (
+                    <span
+                      data-testid={`folder-unread-${f.id.toLowerCase()}`}
+                      className={`min-w-[22px] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center ${
+                        active ? "bg-primary text-primary-foreground" : "bg-primary/15 text-primary"
+                      }`}
+                    >
+                      {unread > 999 ? "999+" : unread}
                     </span>
                   )}
                 </button>

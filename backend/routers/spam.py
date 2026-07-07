@@ -144,7 +144,8 @@ async def spam_messages(limit: int = 100, search: Optional[str] = None,
     _, _, client = await _resolve_account_and_mail(user)
     try:
         folder = client.resolve_spam_folder() or "Junk"
-        return {"folder": folder, "messages": client.list_messages(folder=folder, limit=limit, search=search)}
+        result = client.list_messages(folder=folder, limit=limit, search=search)
+        return {"folder": folder, "messages": result["items"]}
     except MailError as e:
         raise HTTPException(502, str(e))
 
@@ -418,7 +419,8 @@ async def admin_account_messages(account_id: str, limit: int = 100,
     _, _, client = await _admin_get_account_client(account_id, user)
     try:
         folder = client.resolve_spam_folder() or "Junk"
-        return {"folder": folder, "messages": client.list_messages(folder=folder, limit=limit)}
+        result = client.list_messages(folder=folder, limit=limit)
+        return {"folder": folder, "messages": result["items"]}
     except MailError as e:
         raise HTTPException(502, str(e))
 

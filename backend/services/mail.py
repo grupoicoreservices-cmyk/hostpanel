@@ -134,7 +134,19 @@ class MailClient:
             except Exception:
                 pass
 
-    def list_messages(self, folder: str = "INBOX", limit: int = 50, search: str | None = None) -> list[dict]:
+    def list_messages(self, folder: str = "INBOX", limit: int = 50, search: str | None = None,
+                      page: int = 1, page_size: int | None = None) -> dict:
+        """Lista mensagens de uma pasta com paginação.
+
+        Retorna dict com {items, total, page, page_size, unread}.
+        Se `page_size` for None, usa `limit` (compat retroativa) e retorna a lista simples
+        no campo `items`. `page` é 1-based; mensagens mais novas ficam na página 1.
+        """
+        eff_page_size = int(page_size) if page_size is not None else int(limit)
+        if eff_page_size <= 0:
+            eff_page_size = 50
+        eff_page = max(1, int(page))
+
         m = self._imap()
         try:
             m.select(_safe_folder(folder), readonly=True)
@@ -145,11 +157,30 @@ class MailClient:
                 criteria = f'(OR OR SUBJECT "{safe}" FROM "{safe}" BODY "{safe}")'
             typ, data = m.search(None, criteria)
             if typ != "OK" or not data or not data[0]:
-                return []
+                return {"items": [], "total": 0, "page": eff_page, "page_size": eff_page_size, "unread": 0}
             ids = data[0].split()
-            ids = ids[-limit:][::-1]
+            total = len(ids)
+
+            # Contagem de não lidas (só significativa quando não há search)
+            unread_count = 0
+            if not search:
+                typ_u, data_u = m.search(None, "UNSEEN")
+                if typ_u == "OK" and data_u and data_u[0]:
+                    unread_count = len(data_u[0].split())
+            else:
+                # Com search, calcula intersecção via flags depois
+                pass
+
+            # Fatia da página (mensagens mais novas = fim da lista IMAP)
+            end = total - (eff_page - 1) * eff_page_size
+            start = max(0, end - eff_page_size)
+            if end <= 0:
+                page_ids = []
+            else:
+                page_ids = ids[start:end][::-1]
+
             result = []
-            for uid in ids:
+            for uid in page_ids:
                 typ, msg_data = m.fetch(uid, "(RFC822.HEADER FLAGS)")
                 if typ != "OK":
                     continue
@@ -184,9 +215,54 @@ class MailClient:
                     "spam_score": spam_info["score"],
                     "spam_status": spam_info["status"],
                 })
-            return result
+            return {
+                "items": result,
+                "total": total,
+                "page": eff_page,
+                "page_size": eff_page_size,
+                "unread": unread_count,
+            }
         except Exception as e:
             raise MailError(f"IMAP list: {e}") from e
+        finally:
+            try:
+                m.logout()
+            except Exception:
+                pass
+
+    def unread_counts(self, folders: list[str]) -> dict[str, dict]:
+        """Retorna {folder: {"total": int, "unread": int}} usando IMAP STATUS.
+
+        STATUS é a forma padrão e mais leve de obter contadores sem SELECT.
+        Ignora silenciosamente pastas inexistentes.
+        """
+        out: dict[str, dict] = {}
+        if not folders:
+            return out
+        m = self._imap()
+        try:
+            for f in folders:
+                safe = _safe_folder(f)
+                try:
+                    typ, data = m.status(safe, "(MESSAGES UNSEEN)")
+                    if typ != "OK" or not data or not data[0]:
+                        out[f] = {"total": 0, "unread": 0}
+                        continue
+                    raw = data[0].decode(errors="ignore")
+                    # ex: '"INBOX" (MESSAGES 42 UNSEEN 3)'
+                    total = 0
+                    unread = 0
+                    import re
+                    mt = re.search(r"MESSAGES\s+(\d+)", raw)
+                    mu = re.search(r"UNSEEN\s+(\d+)", raw)
+                    if mt:
+                        total = int(mt.group(1))
+                    if mu:
+                        unread = int(mu.group(1))
+                    out[f] = {"total": total, "unread": unread}
+                except Exception:
+                    out[f] = {"total": 0, "unread": 0}
+            return out
         finally:
             try:
                 m.logout()

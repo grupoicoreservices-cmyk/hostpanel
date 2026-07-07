@@ -62,10 +62,33 @@ async def folders(user: dict = Depends(get_current_user)):
 
 @router.get("/messages")
 async def messages(folder: str = "INBOX", limit: int = 50, search: Optional[str] = None,
+                   page: int = 1, page_size: Optional[int] = None,
                    user: dict = Depends(get_current_user)):
     client = await _get_mail_client(user)
     try:
-        return client.list_messages(folder=folder, limit=limit, search=search)
+        result = client.list_messages(
+            folder=folder, limit=limit, search=search,
+            page=page, page_size=page_size,
+        )
+        # Retrocompat: se cliente não pediu paginação, devolve lista simples
+        if page_size is None and page == 1:
+            return result["items"]
+        return result
+    except MailError as e:
+        raise HTTPException(502, str(e))
+
+
+@router.get("/folder-counts")
+async def folder_counts(folders: str = "INBOX,Sent,Drafts,Trash,Junk,Archive",
+                        user: dict = Depends(get_current_user)):
+    """Retorna contagens de mensagens (total/unread) por pasta em uma única conexão IMAP.
+
+    `folders` é uma lista separada por vírgulas. Pastas inexistentes retornam zeros.
+    """
+    client = await _get_mail_client(user)
+    try:
+        wanted = [f.strip() for f in folders.split(",") if f.strip()]
+        return client.unread_counts(wanted)
     except MailError as e:
         raise HTTPException(502, str(e))
 

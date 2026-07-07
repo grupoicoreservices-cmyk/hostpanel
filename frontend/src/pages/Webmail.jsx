@@ -19,19 +19,28 @@ import { toast } from "sonner";
 
 
 /** Fetcher SWR: escolhe o endpoint certo por pasta. Pastas virtuais que
- *  não existem no IMAP (Starred, Snoozed) devolvem [] sem chamar o backend. */
+ *  não existem no IMAP (Starred, Snoozed) devolvem estrutura vazia. */
 const VIRTUAL_FOLDERS = new Set(["Starred", "Snoozed"]);
-const messagesFetcher = async ([folder, search]) => {
-  if (VIRTUAL_FOLDERS.has(folder)) return [];
+const EMPTY_PAGE = { items: [], total: 0, page: 1, page_size: 50, unread: 0 };
+
+const messagesFetcher = async ([folder, search, page, pageSize]) => {
+  if (VIRTUAL_FOLDERS.has(folder)) return { ...EMPTY_PAGE, page_size: pageSize };
   if (folder === "Junk" || folder === "Spam") {
     const { data } = await api.get("/spam/messages", {
-      params: { limit: 100, search: search || undefined },
+      params: { limit: pageSize, search: search || undefined },
     });
-    return data.messages || [];
+    const items = data.messages || [];
+    return { items, total: items.length, page: 1, page_size: pageSize, unread: 0 };
   }
   const { data } = await api.get("/webmail/messages", {
-    params: { folder, limit: 50, search: search || undefined },
+    params: {
+      folder,
+      page,
+      page_size: pageSize,
+      search: search || undefined,
+    },
   });
+  // Backend devolve {items,total,page,page_size,unread} quando enviamos page_size
   return data;
 };
 
@@ -47,6 +56,19 @@ export default function Webmail() {
   const [composing, setComposing] = useState(false);
   const [composeInitial, setComposeInitial] = useState({});
   const [stats, setStats] = useState({});
+  // Paginação
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(() => {
+    try {
+      const v = parseInt(localStorage.getItem("voxyra:mail-page-size") || "20", 10);
+      return [10, 20, 30, 50, 100].includes(v) ? v : 20;
+    } catch { return 20; }
+  });
+  const changePageSize = (n) => {
+    setPageSize(n);
+    setPage(1);
+    try { localStorage.setItem("voxyra:mail-page-size", String(n)); } catch { /* noop */ }
+  };
   // Loader de entrada no webmail (aparece na 1ª carga de mensagens)
   const [firstLoadDone, setFirstLoadDone] = useState(false);
 
@@ -59,13 +81,13 @@ export default function Webmail() {
     return () => clearTimeout(t);
   }, [search]);
 
-  // SWR cache: mantém dados por pasta+busca; revalida em focus e a cada 60s.
+  // SWR cache: mantém dados por pasta+busca+página; revalida em focus e a cada 60s.
   // NÃO usa keepPreviousData — ao trocar de pasta queremos ver "Carregando"
   // imediatamente ao invés dos dados antigos da pasta anterior.
-  const swrKey = user ? ["mail-messages", folder, searchDebounced] : null;
-  const { data: rawMessages, isLoading, isValidating, mutate, error } = useSWR(
+  const swrKey = user ? ["mail-messages", folder, searchDebounced, page, pageSize] : null;
+  const { data: pageData, isLoading, isValidating, mutate, error } = useSWR(
     swrKey,
-    ([, f, s]) => messagesFetcher([f, s]),
+    ([, f, s, p, ps]) => messagesFetcher([f, s, p, ps]),
     {
       revalidateOnFocus: true,
       revalidateIfStale: true,
@@ -74,12 +96,31 @@ export default function Webmail() {
     }
   );
 
+  // Contadores de não lidas por pasta (chave separada, revalida com frequência menor)
+  const { data: folderCounts, mutate: mutateCounts } = useSWR(
+    user ? ["mail-folder-counts"] : null,
+    async () => {
+      try {
+        const { data } = await api.get("/webmail/folder-counts", {
+          params: { folders: "INBOX,Sent,Drafts,Trash,Junk,Archive" },
+        });
+        return data || {};
+      } catch { return {}; }
+    },
+    { revalidateOnFocus: true, refreshInterval: 90_000, dedupingInterval: 30_000 }
+  );
+
   // Marca fim da primeira carga (para o splash sumir)
   useEffect(() => {
-    if (rawMessages !== undefined || error) setFirstLoadDone(true);
-  }, [rawMessages, error]);
+    if (pageData !== undefined || error) setFirstLoadDone(true);
+  }, [pageData, error]);
 
-  const messages = useMemo(() => Array.isArray(rawMessages) ? rawMessages : [], [rawMessages]);
+  // Ao trocar de pasta ou busca, volta para página 1
+  useEffect(() => { setPage(1); }, [folder, searchDebounced]);
+
+  const messages = useMemo(() => Array.isArray(pageData?.items) ? pageData.items : [], [pageData]);
+  const totalMessages = pageData?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalMessages / pageSize));
   const errorDetail = useMemo(
     () => error ? (formatApiErrorDetail(error.response?.data?.detail) || error.message) : null,
     [error]
@@ -107,9 +148,14 @@ export default function Webmail() {
       setSelected(data);
       // marca como lido localmente + revalida cache
       mutate(
-        (prev) => (prev || []).map((x) => x.uid === m.uid ? { ...x, unread: false } : x),
+        (prev) => {
+          if (!prev) return prev;
+          const items = (prev.items || []).map((x) => x.uid === m.uid ? { ...x, unread: false } : x);
+          return { ...prev, items, unread: Math.max(0, (prev.unread || 0) - (m.unread ? 1 : 0)) };
+        },
         { revalidate: false }
       );
+      mutateCounts();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Falha ao abrir mensagem");
       setSelected(m);
@@ -150,7 +196,7 @@ export default function Webmail() {
     try {
       await api.post(`/webmail/messages/${selected.uid}/mark-unread`, null, { params: { folder } });
       toast.success("Marcada como não lida");
-      mutate();
+      mutate(); mutateCounts();
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Falha"); }
   };
 
@@ -162,7 +208,7 @@ export default function Webmail() {
       });
       toast.success("Mensagem arquivada");
       setSelected(null);
-      mutate();
+      mutate(); mutateCounts();
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Não foi possível arquivar"); }
   };
 
@@ -178,7 +224,7 @@ export default function Webmail() {
         ? "Movido para spam e remetente bloqueado"
         : "Movido para spam");
       setSelected(null);
-      mutate();
+      mutate(); mutateCounts();
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Não foi possível mover"); }
   };
 
@@ -194,7 +240,7 @@ export default function Webmail() {
         ? "Movido para Entrada e remetente adicionado ao whitelist"
         : "Movido para Entrada");
       setSelected(null);
-      mutate();
+      mutate(); mutateCounts();
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Falha"); }
   };
 
@@ -204,7 +250,7 @@ export default function Webmail() {
       await api.delete(`/webmail/messages/${selected.uid}`, { params: { folder } });
       toast.success("Mensagem excluída");
       setSelected(null);
-      mutate();
+      mutate(); mutateCounts();
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Falha"); }
   };
 
@@ -214,7 +260,9 @@ export default function Webmail() {
   })[folder] || folder, [folder]);
 
   const vertical = prefs.view_mode === "vertical";
-  const loading = isLoading || (isValidating && !rawMessages);
+  const loading = isLoading || (isValidating && !pageData);
+
+  const refreshAll = () => { mutate(); mutateCounts(); };
 
   // Splash de entrada: enquanto a primeira coleta de mensagens não termina,
   // mostra tela full-screen com feedback claro.
@@ -245,6 +293,7 @@ export default function Webmail() {
         activeFolder={folder}
         onFolderChange={(f) => { setFolder(f); setSelected(null); }}
         onCompose={() => { setComposeInitial({}); setComposing(true); }}
+        folderCounts={folderCounts || {}}
       />
 
       <div className="flex-1 flex flex-col min-w-0">
@@ -346,9 +395,15 @@ export default function Webmail() {
                 loading={loading}
                 selectedUid={selected?.uid}
                 onSelect={openMessage}
-                onRefresh={() => mutate()}
+                onRefresh={refreshAll}
                 folderTitle={folderTitle}
                 folderSubtitle={user?.email || ""}
+                page={page}
+                pageSize={pageSize}
+                total={totalMessages}
+                totalPages={totalPages}
+                onPageChange={setPage}
+                onPageSizeChange={changePageSize}
               />
             </Panel>
 
@@ -392,7 +447,7 @@ export default function Webmail() {
         open={composing}
         initial={composeInitial}
         onClose={() => setComposing(false)}
-        onSent={() => mutate()}
+        onSent={() => { mutate(); mutateCounts(); }}
       />
     </div>
   );
