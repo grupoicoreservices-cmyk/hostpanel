@@ -19,6 +19,7 @@ import AdminLogs from "@/pages/admin/Logs";
 import AdminUsers from "@/pages/admin/Users";
 import AdminMonitoring from "@/pages/admin/Monitoring";
 import AdminAntispam from "@/pages/admin/Antispam";
+import AdminSpamQuarantine from "@/pages/admin/SpamQuarantine";
 
 function Protected({ children, roles }) {
   const { user, ready } = useAuth();
@@ -74,6 +75,7 @@ export default function App() {
               <Route path="usuarios" element={<AdminUsers />} />
               <Route path="monitoramento" element={<AdminMonitoring />} />
               <Route path="antispam" element={<AdminAntispam />} />
+              <Route path="quarentena" element={<AdminSpamQuarantine />} />
               <Route path="logs" element={<AdminLogs />} />
             </Route>
 

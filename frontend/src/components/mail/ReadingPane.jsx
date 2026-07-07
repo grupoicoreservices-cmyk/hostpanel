@@ -1,4 +1,4 @@
-import { Archive, ShieldAlert, Reply, MoreHorizontal, Trash2, Forward, MailOpen } from "lucide-react";
+import { Archive, ShieldAlert, ShieldCheck, Reply, MoreHorizontal, Trash2, Forward, MailOpen, Ban } from "lucide-react";
 import DOMPurify from "dompurify";
 import { MAIL } from "@/lib/testIds";
 
@@ -17,7 +17,7 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   }
 });
 
-export default function ReadingPane({ message, onArchive, onSpam, onDelete, onReply, onClose, onReplyQuick }) {
+export default function ReadingPane({ message, onArchive, onSpam, onDelete, onReply, onClose, onReplyQuick, onNotSpam, onBlockSender, isSpamFolder }) {
   if (!message) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background/40 dark:bg-slate-950/40">
@@ -38,27 +38,57 @@ export default function ReadingPane({ message, onArchive, onSpam, onDelete, onRe
     <div className="flex-1 flex flex-col overflow-hidden bg-background/40 dark:bg-slate-950/40">
       {/* Action bar */}
       <div className="p-4 border-b border-border flex items-center gap-2 flex-wrap bg-card">
-        <button
-          data-testid={MAIL.archiveBtn}
-          onClick={onArchive}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors"
-        >
-          <Archive className="w-3.5 h-3.5" /> Arquivar
-        </button>
-        <button
-          data-testid={MAIL.spamBtn}
-          onClick={onSpam}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors"
-        >
-          <ShieldAlert className="w-3.5 h-3.5" /> Marcar spam
-        </button>
-        <button
-          data-testid={MAIL.replyBtn}
-          onClick={onReply}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-blue-700 transition-colors"
-        >
-          <Reply className="w-3.5 h-3.5" /> Responder
-        </button>
+        {isSpamFolder ? (
+          <>
+            <button
+              data-testid="reading-not-spam-btn"
+              onClick={() => onNotSpam?.(false)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" /> Não é spam
+            </button>
+            <button
+              data-testid="reading-not-spam-wl-btn"
+              onClick={() => onNotSpam?.(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-600 text-emerald-700 dark:text-emerald-400 text-xs font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors"
+              title="Move para a Entrada e adiciona remetente ao whitelist do DirectAdmin"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" /> Não é spam + Whitelist
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              data-testid={MAIL.archiveBtn}
+              onClick={onArchive}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors"
+            >
+              <Archive className="w-3.5 h-3.5" /> Arquivar
+            </button>
+            <button
+              data-testid={MAIL.spamBtn}
+              onClick={() => onSpam?.(false)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors"
+            >
+              <ShieldAlert className="w-3.5 h-3.5" /> Marcar spam
+            </button>
+            <button
+              data-testid="reading-spam-bl-btn"
+              onClick={() => onSpam?.(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-destructive hover:bg-destructive/10 transition-colors"
+              title="Move para o Spam e adiciona remetente ao blacklist do DirectAdmin"
+            >
+              <Ban className="w-3.5 h-3.5" /> Spam + Bloquear remetente
+            </button>
+            <button
+              data-testid={MAIL.replyBtn}
+              onClick={onReply}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-blue-700 transition-colors"
+            >
+              <Reply className="w-3.5 h-3.5" /> Responder
+            </button>
+          </>
+        )}
         <button
           data-testid={MAIL.deleteBtn}
           onClick={onDelete}
@@ -100,6 +130,29 @@ export default function ReadingPane({ message, onArchive, onSpam, onDelete, onRe
         </div>
 
         <div className="border border-border rounded-xl p-6 bg-card">
+          {(message.spam_flag || (typeof message.spam_score === "number" && message.spam_score >= 3)) && (
+            <div
+              data-testid="reading-spam-warning"
+              className="mb-4 flex items-start gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-4 py-3"
+            >
+              <ShieldAlert className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+              <div className="flex-1 text-xs">
+                <div className="font-semibold text-red-800 dark:text-red-300">
+                  Marcada como spam pelo SpamAssassin
+                  {typeof message.spam_score === "number" && (
+                    <span className="ml-2 px-1.5 py-0.5 rounded bg-red-200 dark:bg-red-900 text-red-900 dark:text-red-100 font-mono">
+                      score {message.spam_score.toFixed(1)}
+                    </span>
+                  )}
+                </div>
+                {message.spam_status && (
+                  <div className="mt-1 text-red-700/80 dark:text-red-300/80 font-mono break-all">
+                    {message.spam_status}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           {body}
         </div>
 

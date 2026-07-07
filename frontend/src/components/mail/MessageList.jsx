@@ -123,6 +123,15 @@ export default function MessageList({
                     </div>
                   </div>
                   {m.has_attachment && <Paperclip className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
+                  {(m.spam_flag || (typeof m.spam_score === "number" && m.spam_score >= 3)) && (
+                    <span
+                      title={m.spam_status || `Score ${m.spam_score}`}
+                      className="px-1.5 py-0.5 rounded-md bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 text-[10px] font-bold flex-shrink-0"
+                      data-testid={`spam-score-${m.uid}`}
+                    >
+                      {typeof m.spam_score === "number" ? `SPAM ${m.spam_score.toFixed(1)}` : "SPAM"}
+                    </span>
+                  )}
                   <div className={`text-[11px] flex-shrink-0 font-medium ${m.unread ? "text-primary" : "text-muted-foreground"}`}>
                     {formatDate(m.date)}
                   </div>

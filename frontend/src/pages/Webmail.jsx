@@ -63,11 +63,20 @@ export default function Webmail() {
   const loadMessages = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get("/webmail/messages", {
-        params: { folder, limit: 50, search: search || undefined },
-      });
-      setMessages(data);
-      setDemoMode(false);
+      // Para pasta Spam/Junk, usa endpoint dedicado que auto-descobre a pasta correta
+      if (folder === "Junk" || folder === "Spam") {
+        const { data } = await api.get("/spam/messages", {
+          params: { limit: 100, search: search || undefined },
+        });
+        setMessages(data.messages || []);
+        setDemoMode(false);
+      } else {
+        const { data } = await api.get("/webmail/messages", {
+          params: { folder, limit: 50, search: search || undefined },
+        });
+        setMessages(data);
+        setDemoMode(false);
+      }
     } catch {
       // Fallback to demo data when IMAP not yet configured
       setMessages(DEMO_MESSAGES.filter((m) => folder === "INBOX" || m.folder === folder));
@@ -125,17 +134,38 @@ export default function Webmail() {
     } catch (e) { toast.error("Não foi possível arquivar"); }
   };
 
-  const doSpam = async () => {
+  const doSpam = async (addBlacklist = false) => {
     if (!selected) return;
     if (demoMode) { toast.info("Modo demo — configure IMAP para mover ao spam"); return; }
     try {
-      await api.post(`/webmail/messages/${selected.uid}/move`, null, {
-        params: { src_folder: folder, dst_folder: "Junk" },
+      const { data } = await api.post("/spam/report", {
+        uids: [selected.uid],
+        src_folder: folder,
+        add_blacklist: addBlacklist,
       });
-      toast.success("Movido para spam");
+      toast.success(addBlacklist && data.blacklisted
+        ? `Movido para spam e remetente bloqueado`
+        : "Movido para spam");
       setSelected(null);
       loadMessages();
     } catch (e) { toast.error("Não foi possível mover"); }
+  };
+
+  const doNotSpam = async (addWhitelist = false) => {
+    if (!selected) return;
+    if (demoMode) { toast.info("Modo demo — configure IMAP para restaurar"); return; }
+    try {
+      const { data } = await api.post("/spam/not-spam", {
+        uids: [selected.uid],
+        folder,
+        add_whitelist: addWhitelist,
+      });
+      toast.success(addWhitelist && data.whitelisted
+        ? "Movido para Entrada e remetente adicionado ao whitelist"
+        : "Movido para Entrada");
+      setSelected(null);
+      loadMessages();
+    } catch (e) { toast.error("Não foi possível marcar como não-spam"); }
   };
 
   const doDelete = async () => {
@@ -257,10 +287,12 @@ export default function Webmail() {
               message={selected}
               onArchive={doArchive}
               onSpam={doSpam}
+              onNotSpam={doNotSpam}
               onDelete={doDelete}
               onReply={doReply}
               onReplyQuick={doReply}
               onClose={() => setSelected(null)}
+              isSpamFolder={folder === "Junk" || folder === "Spam"}
             />
           </div>
 

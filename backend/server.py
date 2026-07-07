@@ -18,6 +18,7 @@ from routers.monitoring import router as monitoring_router
 from routers.antispam import router as antispam_router
 from routers.webmail_auth import router as webmail_auth_router
 from routers.public import router as public_router
+from routers.spam import router as spam_router
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -69,6 +70,7 @@ app.include_router(monitoring_router)
 app.include_router(antispam_router)
 app.include_router(webmail_auth_router)
 app.include_router(public_router)
+app.include_router(spam_router)
 
 
 # ---------- Startup ----------

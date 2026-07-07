@@ -30,6 +30,29 @@ FOLDER_MAP = {
     "Archive": "Arquivo",
 }
 
+# Nomes possíveis para a pasta de spam em servidores IMAP diferentes.
+SPAM_FOLDER_CANDIDATES = ("Junk", "Spam", "INBOX.Junk", "INBOX.Spam", "INBOX/Junk", "INBOX/Spam")
+
+
+def _parse_spam_headers(msg) -> dict:
+    """Extrai informação de SpamAssassin dos cabeçalhos padrão."""
+    flag = str(msg.get("X-Spam-Flag", "")).strip().upper() == "YES"
+    score_raw = msg.get("X-Spam-Score") or msg.get("X-Spam-Level") or ""
+    score = None
+    try:
+        score = float(str(score_raw).strip().split()[0])
+    except (ValueError, IndexError, TypeError):
+        # X-Spam-Level costuma ser "*****" — conta os *
+        s = str(score_raw)
+        if s and all(c == "*" for c in s):
+            score = float(len(s))
+    status = str(msg.get("X-Spam-Status", "") or "").strip()
+    return {
+        "flag": flag,
+        "score": score,
+        "status": status[:200] if status else None,
+    }
+
 
 def _decode(value) -> str:
     if value is None:
@@ -126,6 +149,7 @@ class MailClient:
                 subject = _decode(msg.get("Subject", "(sem assunto)"))
                 unread = "\\Seen" not in str(flags)
                 starred = "\\Flagged" in str(flags)
+                spam_info = _parse_spam_headers(msg)
                 result.append({
                     "uid": uid.decode(),
                     "subject": subject or "(sem assunto)",
@@ -138,6 +162,9 @@ class MailClient:
                     "starred": starred,
                     "has_attachment": False,
                     "folder": folder,
+                    "spam_flag": spam_info["flag"],
+                    "spam_score": spam_info["score"],
+                    "spam_status": spam_info["status"],
                 })
             return result
         except Exception as e:
@@ -196,7 +223,99 @@ class MailClient:
                 "body_text": body_text or None,
                 "attachments": attachments,
                 "folder": folder,
+                **{f"spam_{k}": v for k, v in _parse_spam_headers(msg).items()},
             }
+        finally:
+            try:
+                m.logout()
+            except Exception:
+                pass
+
+    def resolve_spam_folder(self) -> str | None:
+        """Retorna o nome real da pasta de spam do IMAP (Junk / Spam / INBOX.Spam…)."""
+        m = self._imap()
+        try:
+            typ, data = m.list()
+            if typ != "OK" or not data:
+                return None
+            available = []
+            for raw in data:
+                if not raw:
+                    continue
+                parts = raw.decode(errors="ignore").split(' "/" ')
+                name = parts[-1].strip().strip('"')
+                available.append(name)
+            for cand in SPAM_FOLDER_CANDIDATES:
+                if cand in available:
+                    return cand
+            # heurística: qualquer pasta contendo "spam" ou "junk"
+            for name in available:
+                low = name.lower()
+                if "junk" in low or "spam" in low:
+                    return name
+            return None
+        finally:
+            try:
+                m.logout()
+            except Exception:
+                pass
+
+    def bulk_move(self, uids: list[str], src_folder: str, dst_folder: str) -> int:
+        """Move várias UIDs de src_folder para dst_folder. Retorna quantas foram movidas."""
+        if not uids:
+            return 0
+        m = self._imap()
+        moved = 0
+        try:
+            m.select(src_folder)
+            for uid in uids:
+                try:
+                    m.copy(uid, dst_folder)
+                    m.store(uid, "+FLAGS", "\\Deleted")
+                    moved += 1
+                except Exception:
+                    continue
+            m.expunge()
+            return moved
+        finally:
+            try:
+                m.logout()
+            except Exception:
+                pass
+
+    def bulk_delete(self, uids: list[str], folder: str) -> int:
+        if not uids:
+            return 0
+        m = self._imap()
+        deleted = 0
+        try:
+            m.select(folder)
+            for uid in uids:
+                try:
+                    m.store(uid, "+FLAGS", "\\Deleted")
+                    deleted += 1
+                except Exception:
+                    continue
+            m.expunge()
+            return deleted
+        finally:
+            try:
+                m.logout()
+            except Exception:
+                pass
+
+    def folder_count(self, folder: str) -> int:
+        m = self._imap()
+        try:
+            typ, data = m.select(folder, readonly=True)
+            if typ != "OK":
+                return 0
+            try:
+                return int(data[0])
+            except (TypeError, ValueError):
+                return 0
+        except Exception:
+            return 0
         finally:
             try:
                 m.logout()
