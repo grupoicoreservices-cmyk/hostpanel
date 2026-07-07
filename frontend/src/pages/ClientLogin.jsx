@@ -125,24 +125,20 @@ export default function ClientLogin() {
     >
       {/* Corpo com card central */}
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-8">
-        {/* Logo grande ACIMA do card */}
-        <div className="mb-6 flex flex-col items-center gap-3" data-testid="client-login-brandmark-top">
-          <BrandMark logoUrl={logoUrl} size="lg" />
-        </div>
-
         <div
           className="w-full max-w-[900px] rounded-3xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm p-8 sm:p-12"
           data-testid="client-login-card"
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12">
-            {/* Coluna esquerda: título (o logo agora está acima do card) */}
-            <div className="flex flex-col justify-start">
-              <h1 className="text-[2rem] sm:text-[2.25rem] leading-[1.15] font-normal text-slate-900 dark:text-slate-100 tracking-tight">
-                Faça login
-              </h1>
-              <p className="mt-2 text-slate-700 dark:text-slate-300 text-[15px]">
-                Ir para <span className="font-medium">{brandName}</span>
-              </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 items-center">
+            {/* Coluna esquerda: logo grande + "WEBMAIL" */}
+            <div className="flex flex-col items-center justify-center gap-3 py-4">
+              <BrandMark logoUrl={logoUrl} size="lg" />
+              <div
+                data-testid="client-login-brand-label"
+                className="text-slate-700 dark:text-slate-200 text-lg sm:text-xl font-semibold tracking-[0.35em] uppercase"
+              >
+                WEBMAIL
+              </div>
 
               {/* Chip da conta quando está no passo da senha */}
               {step === "password" && (
@@ -150,7 +146,7 @@ export default function ClientLogin() {
                   type="button"
                   onClick={changeAccount}
                   data-testid="client-login-change-account"
-                  className="mt-6 inline-flex items-center gap-2 self-start px-3 py-1.5 rounded-full border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-sm text-slate-700 dark:text-slate-200 transition-colors"
+                  className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700/60 text-sm text-slate-700 dark:text-slate-200 transition-colors"
                 >
                   <span className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-700 dark:text-blue-300 text-[10px] font-bold uppercase">
                     {(email[0] || "?").toUpperCase()}
