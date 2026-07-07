@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, Sun, Moon, LayoutPanelLeft, LayoutPanelTop, HelpCircle, Settings, ArrowLeft } from "lucide-react";
+import { Search, Sun, Moon, LayoutPanelLeft, LayoutPanelTop, HelpCircle, Settings, ArrowLeft, AlertCircle } from "lucide-react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import useSWR from "swr";
 
@@ -11,29 +11,12 @@ import ReadingPane from "@/components/mail/ReadingPane";
 import ComposeModal from "@/components/mail/ComposeModal";
 import SaasPanel from "@/components/mail/SaaSPanel";
 
-import { api } from "@/lib/api";
+import { api, formatApiErrorDetail } from "@/lib/api";
 import { MAIL, ADMIN } from "@/lib/testIds";
 import { useAuth } from "@/context/AuthContext";
 import { usePrefs } from "@/context/PrefsContext";
 import { toast } from "sonner";
 
-
-const DEMO_MESSAGES = [
-  { uid: "d1", from_name: "DirectAdmin", from_addr: "directadmin@server01.voxyra.net.br",
-    subject: "Alerta de quota do domínio",
-    preview: "A conta financeiro@grupoicore.com.br atingiu 82% da capacidade contratada.",
-    date: new Date().toISOString(), unread: true, starred: true, folder: "INBOX",
-    body_html: `<p>Olá, administrador.</p><p>A mailbox <strong>financeiro@grupoicore.com.br</strong> atingiu 82% da capacidade contratada.</p>`,
-    to: ["admin@grupoicore.com.br"] },
-  { uid: "d2", from_name: "Cliente Bellanapoli", from_addr: "contato@bellanapoli.com.br",
-    subject: "Falha de entrega", preview: "Mensagem retornou com erro 550…",
-    date: new Date(Date.now()-3600e3).toISOString(), unread: true, folder: "INBOX",
-    body_text: "Mensagem retornou com erro 550. Verifique o SPF do domínio remetente." },
-  { uid: "d3", from_name: "Sistema Antispam", from_addr: "antispam@voxyra.net.br",
-    subject: "Resumo diário", preview: "738 mensagens bloqueadas, 12 quarentenadas.",
-    date: new Date(Date.now()-86400e3).toISOString(), folder: "INBOX",
-    body_text: "738 mensagens bloqueadas, 12 quarentenadas nas últimas 24 horas." },
-];
 
 /** Fetcher SWR: escolhe o endpoint certo por pasta. */
 const messagesFetcher = async ([folder, search]) => {
@@ -85,11 +68,11 @@ export default function Webmail() {
     }
   );
 
-  const demoMode = !!error;
-  const messages = useMemo(() => {
-    if (error) return DEMO_MESSAGES.filter((m) => folder === "INBOX" || m.folder === folder);
-    return rawMessages || [];
-  }, [rawMessages, error, folder]);
+  const messages = useMemo(() => Array.isArray(rawMessages) ? rawMessages : [], [rawMessages]);
+  const errorDetail = useMemo(
+    () => error ? (formatApiErrorDetail(error.response?.data?.detail) || error.message) : null,
+    [error]
+  );
 
   // Stats admin
   useEffect(() => {
@@ -103,7 +86,6 @@ export default function Webmail() {
   }, [isAdmin]);
 
   const openMessage = async (m) => {
-    if (demoMode) { setSelected(m); return; }
     // Otimista: já mostra o preview enquanto o corpo carrega
     setSelected({ ...m, _loadingBody: true });
     try {
@@ -115,7 +97,10 @@ export default function Webmail() {
         (prev) => (prev || []).map((x) => x.uid === m.uid ? { ...x, unread: false } : x),
         { revalidate: false }
       );
-    } catch { setSelected(m); }
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Falha ao abrir mensagem");
+      setSelected(m);
+    }
   };
 
   const openInNewTab = () => {
@@ -136,7 +121,6 @@ export default function Webmail() {
 
   const doArchive = async () => {
     if (!selected) return;
-    if (demoMode) { toast.info("Modo demo — configure IMAP para arquivar"); return; }
     try {
       await api.post(`/webmail/messages/${selected.uid}/move`, null, {
         params: { src_folder: folder, dst_folder: "Archive" },
@@ -144,12 +128,11 @@ export default function Webmail() {
       toast.success("Mensagem arquivada");
       setSelected(null);
       mutate();
-    } catch { toast.error("Não foi possível arquivar"); }
+    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Não foi possível arquivar"); }
   };
 
   const doSpam = async (addBlacklist = false) => {
     if (!selected) return;
-    if (demoMode) { toast.info("Modo demo — configure IMAP para mover ao spam"); return; }
     try {
       const { data } = await api.post("/spam/report", {
         uids: [selected.uid],
@@ -161,12 +144,11 @@ export default function Webmail() {
         : "Movido para spam");
       setSelected(null);
       mutate();
-    } catch { toast.error("Não foi possível mover"); }
+    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Não foi possível mover"); }
   };
 
   const doNotSpam = async (addWhitelist = false) => {
     if (!selected) return;
-    if (demoMode) { toast.info("Modo demo — configure IMAP para restaurar"); return; }
     try {
       const { data } = await api.post("/spam/not-spam", {
         uids: [selected.uid],
@@ -178,18 +160,17 @@ export default function Webmail() {
         : "Movido para Entrada");
       setSelected(null);
       mutate();
-    } catch { toast.error("Não foi possível marcar como não-spam"); }
+    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Falha"); }
   };
 
   const doDelete = async () => {
     if (!selected) return;
-    if (demoMode) { toast.info("Modo demo — configure IMAP para excluir"); return; }
     try {
       await api.delete(`/webmail/messages/${selected.uid}`, { params: { folder } });
       toast.success("Mensagem excluída");
       setSelected(null);
       mutate();
-    } catch { toast.error("Não foi possível excluir"); }
+    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Falha"); }
   };
 
   const folderTitle = useMemo(() => ({
@@ -276,6 +257,17 @@ export default function Webmail() {
 
         {isAdmin && <StatsBar stats={stats} />}
 
+        {/* Banner de erro (IMAP inacessível, senha faltando etc) */}
+        {errorDetail && !loading && (
+          <div className="px-6 py-2 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-900 flex items-start gap-2 text-xs">
+            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5"/>
+            <div className="text-amber-900 dark:text-amber-200">
+              <strong>Não foi possível carregar mensagens do servidor:</strong> {errorDetail}
+              <button onClick={() => mutate()} className="ml-2 underline hover:no-underline">Tentar novamente</button>
+            </div>
+          </div>
+        )}
+
         {/* Content area — painéis redimensionáveis */}
         <div className="flex-1 overflow-hidden">
           <PanelGroup
@@ -290,9 +282,7 @@ export default function Webmail() {
                 onSelect={openMessage}
                 onRefresh={() => mutate()}
                 folderTitle={folderTitle}
-                folderSubtitle={demoMode
-                  ? "Modo demonstração — configure servidor DirectAdmin para dados reais"
-                  : `${user?.email || ""}`}
+                folderSubtitle={user?.email || ""}
               />
             </Panel>
 

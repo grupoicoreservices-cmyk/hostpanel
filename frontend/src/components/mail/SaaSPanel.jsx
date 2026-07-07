@@ -26,15 +26,15 @@ export default function SaasPanel({ stats, primaryServer, primaryDomain }) {
 
       <div className="p-4 space-y-3">
         <div className="rounded-xl border border-border p-4 bg-background/40">
-          <div className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground">Plano atual</div>
-          <div className="font-display font-bold text-lg mt-1">Business Pro</div>
-          <div className="text-xs text-muted-foreground">• 50 GB</div>
+          <div className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground">Contas ativas</div>
+          <div className="font-display font-bold text-lg mt-1">{stats?.contas ?? 0}</div>
+          <div className="text-xs text-muted-foreground">em {stats?.dominios ?? 0} domínio(s)</div>
         </div>
 
         <div className="rounded-xl border border-border p-4 bg-background/40">
           <div className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground">Domínio principal</div>
           <div className="font-display font-semibold text-sm mt-1 truncate">
-            {primaryDomain || "grupoicore.com.br"}
+            {primaryDomain || "—"}
           </div>
         </div>
       </div>
@@ -67,7 +67,7 @@ export default function SaasPanel({ stats, primaryServer, primaryDomain }) {
         }`}>
           <div className="flex items-center gap-2 text-xs font-bold">
             <CircleDot className={`w-3.5 h-3.5 ${(stats?.servidores_online ?? 0) > 0 ? "text-emerald-500" : "text-amber-500"}`} />
-            <span className="truncate">{primaryServer?.nome || "server01.voxyra.net.br"}</span>
+            <span className="truncate">{primaryServer?.nome || "Nenhum servidor"}</span>
           </div>
           <div className="text-[11px] text-muted-foreground mt-1">
             {(stats?.servidores_online ?? 0) > 0

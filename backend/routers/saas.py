@@ -62,6 +62,13 @@ async def dashboard_stats(user: dict = Depends(require_admin)):
     async for acc in db.email_accounts.find(dom_q, {"_id": 0, "used_mb": 1, "quota_mb": 1}):
         used_total += float(acc.get("used_mb", 0))
         quota_total += float(acc.get("quota_mb", 0))
+    # spam_blocked_7d: contagem de ações de spam nos audit logs dos últimos 7 dias
+    from datetime import datetime, timezone, timedelta
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    spam_actions_q = {"action": {"$in": ["spam.report", "spam.blacklist"]}, "created_at": {"$gte": week_ago}}
+    if user["role"] != "superadmin":
+        spam_actions_q["empresa_id"] = user.get("empresa_id")
+    spam_blocked_7d = await db.audit_logs.count_documents(spam_actions_q)
     return {
         "empresas": empresas,
         "dominios": domains,
@@ -70,7 +77,7 @@ async def dashboard_stats(user: dict = Depends(require_admin)):
         "servidores_total": servers_total,
         "storage_used_mb": round(used_total, 2),
         "storage_quota_mb": round(quota_total, 2),
-        "spam_blocked_7d": 4821,  # placeholder metric
+        "spam_blocked_7d": spam_blocked_7d,
     }
 
 

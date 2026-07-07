@@ -74,6 +74,14 @@ async def summary(user: dict = Depends(require_admin)):
     disabled = await db.email_accounts.count_documents({**q, "spam_config.enabled": False})
     unknown = total - enabled - disabled
 
+    # spam_blocked_7d: contagem de ações "spam.report" nos audit logs (últimos 7 dias)
+    from datetime import datetime, timezone, timedelta
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    spam_q = {"action": {"$in": ["spam.report", "spam.blacklist"]}, "created_at": {"$gte": week_ago}}
+    if user["role"] != "superadmin":
+        spam_q["empresa_id"] = user.get("empresa_id")
+    spam_blocked_7d = await db.audit_logs.count_documents(spam_q)
+
     domains = await db.domains.count_documents(_scope(user))
     return {
         "total_accounts": total,
@@ -81,7 +89,7 @@ async def summary(user: dict = Depends(require_admin)):
         "disabled_accounts": disabled,
         "unknown_accounts": unknown,
         "total_domains": domains,
-        "spam_blocked_7d": 4821,  # placeholder — futuro: contar de amavis/dovecot logs
+        "spam_blocked_7d": spam_blocked_7d,
     }
 
 

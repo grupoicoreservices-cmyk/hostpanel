@@ -1,14 +1,14 @@
-import { Inbox, Star, Clock, Send, FileEdit, ShieldAlert, Trash2, Archive, Building2, Plus, LogOut, Mail, HardDrive } from "lucide-react";
+import { Inbox, Star, Clock, Send, FileEdit, ShieldAlert, Trash2, Archive, Building2, Plus, LogOut, Mail } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { MAIL, AUTH } from "@/lib/testIds";
 import { useAuth } from "@/context/AuthContext";
 
 const FOLDERS = [
-  { id: "INBOX",    label: "Entrada",         icon: Inbox,       color: "text-blue-500",    badge: 238 },
+  { id: "INBOX",    label: "Entrada",         icon: Inbox,       color: "text-blue-500" },
   { id: "Starred",  label: "Favoritos",       icon: Star,        color: "text-amber-500" },
   { id: "Snoozed",  label: "Adiados",         icon: Clock,       color: "text-purple-500" },
   { id: "Sent",     label: "Enviados",        icon: Send,        color: "text-sky-500" },
-  { id: "Drafts",   label: "Rascunhos",       icon: FileEdit,    color: "text-orange-500",  badge: 6 },
+  { id: "Drafts",   label: "Rascunhos",       icon: FileEdit,    color: "text-orange-500" },
   { id: "Junk",     label: "Antispam Center", icon: ShieldAlert, color: "text-red-500" },
   { id: "Trash",    label: "Lixeira",         icon: Trash2,      color: "text-slate-500" },
   { id: "Archive",  label: "Arquivo",         icon: Archive,     color: "text-emerald-500" },
@@ -95,21 +95,6 @@ export default function Sidebar({ activeFolder, onFolderChange, onCompose, empre
           </div>
         )}
       </nav>
-
-      {/* Storage — apenas para admin */}
-      {isAdmin && (
-        <div className="px-4 py-4 border-t border-border">
-          <div className="flex items-center gap-2 text-xs font-semibold mb-2">
-            <HardDrive className="w-3.5 h-3.5 text-muted-foreground" />
-            <span>Armazenamento</span>
-            <span className="ml-auto text-muted-foreground">68%</span>
-          </div>
-          <div className="h-1.5 rounded-full bg-blue-200/50 dark:bg-slate-700 overflow-hidden">
-            <div className="h-full rounded-full bg-primary" style={{ width: "68%" }} />
-          </div>
-          <div className="text-[11px] text-muted-foreground mt-1.5">34.2 GB de 50 GB usados</div>
-        </div>
-      )}
 
       {/* User footer */}
       <div className="p-3 border-t border-border flex items-center gap-2">

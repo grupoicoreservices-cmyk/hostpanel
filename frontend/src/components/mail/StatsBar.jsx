@@ -9,9 +9,9 @@ const CARDS = [
 
 export default function StatsBar({ stats }) {
   const value = useMemo(() => ({
-    dominios: stats?.dominios ?? 12,
-    contas: stats?.contas ?? 186,
-    spam: stats?.spam_blocked_7d ?? 4821,
+    dominios: stats?.dominios ?? 0,
+    contas: stats?.contas ?? 0,
+    spam: stats?.spam_blocked_7d ?? 0,
     servidor: (stats?.servidores_online ?? 0) > 0 ? "Online" : "Aguardando",
   }), [stats]);
 

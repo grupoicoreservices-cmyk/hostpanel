@@ -115,8 +115,9 @@ export default function MessageList({
           <div className="p-12 text-center">
             <AlertCircle className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
             <div className="text-sm font-semibold text-foreground">Sem mensagens nesta pasta</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              Cadastre um servidor DirectAdmin, um domínio e uma conta de e-mail para começar a receber mensagens reais via IMAP.
+            <div className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+              Se você acabou de configurar sua caixa, aguarde alguns segundos e clique em atualizar.
+              Caso contrário, verifique se o servidor IMAP do domínio está acessível e as credenciais estão corretas.
             </div>
           </div>
         )}
